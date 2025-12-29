@@ -1,0 +1,2 @@
+/usr/bin/ar qc liborion_backend_cpu.a CMakeFiles/orion_backend_cpu.dir/backend/cpu/BackendCPU.cpp.o
+/usr/bin/ranlib liborion_backend_cpu.a

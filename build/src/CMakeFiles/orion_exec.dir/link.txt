@@ -1,0 +1,1 @@
+/usr/bin/c++ -O3 -DNDEBUG -Wl,-rpath -Wl,/home/soft/openmpi-5.0.5/lib -Wl,--enable-new-dtags -pthread CMakeFiles/orion_exec.dir/main.cpp.o -o orion_exec  liborion_core.a liborion_backend_cpu.a /home/soft/openmpi-5.0.5/lib/libmpi.so
