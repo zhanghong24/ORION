@@ -33,9 +33,9 @@ static void calc_physical_flux(const std::vector<double>& q, double gamma,
 }
 
 // ===========================================================================
-// 黎曼求解器：Roe
+// 黎曼求解器：Roe (复刻 flux_Roe)
 // ===========================================================================
-static void flux_Roe(std::vector<double> ql, std::vector<double> qr, 
+static void flux_Roe(const std::vector<double>& ql, const std::vector<double>& qr, 
                      double nx, double ny, double nz, double nt,
                      double efix, double gamma,
                      std::vector<double>& f)
@@ -51,6 +51,7 @@ static void flux_Roe(std::vector<double> ql, std::vector<double> qr,
     double gamma1 = gamma - 1.0;
     double gamma2 = gamma / gamma1;
     
+    // Roe Averaging
     double hl = gamma2 * ql[4]/ql[0] + 0.5*(ql[1]*ql[1] + ql[2]*ql[2] + ql[3]*ql[3]);
     double hr = gamma2 * qr[4]/qr[0] + 0.5*(qr[1]*qr[1] + qr[2]*qr[2] + qr[3]*qr[3]);
     
@@ -71,6 +72,7 @@ static void flux_Roe(std::vector<double> ql, std::vector<double> qr,
 
     double U_contra = u_roe*nx + v_roe*ny + w_roe*nz + nt;
     
+    // Geometric Normalization
     double grad_mag = std::sqrt(nx*nx + ny*ny + nz*nz);
     double sml = 1.0e-30;
     grad_mag = std::max(grad_mag, sml);
@@ -82,19 +84,19 @@ static void flux_Roe(std::vector<double> ql, std::vector<double> qr,
 
     double c_mag = c * grad_mag;
 
+    // Eigenvalues
     double l1 = std::abs(U_contra - c_mag);
     double l4 = std::abs(U_contra);
     double l5 = std::abs(U_contra + c_mag);
 
+    // Harten's Entropy Fix (Fortran logic)
     double delta = efix * c_mag; 
-    auto entropy_fix = [&](double lam) {
-        if (lam < delta) return 0.5 * (lam*lam + delta*delta) / delta;
-        return lam;
-    };
-    l1 = entropy_fix(l1);
-    l4 = entropy_fix(l4);
-    l5 = entropy_fix(l5);
+    double delta2 = delta * delta;
+    if (l1 < delta) l1 = std::sqrt(l1*l1 + delta2); // Fortran uses sqrt(l^2+d^2)
+    if (l4 < delta) l4 = std::sqrt(l4*l4 + delta2);
+    if (l5 < delta) l5 = std::sqrt(l5*l5 + delta2);
 
+    // Wave Amplitudes
     double du = dq[1], dv = dq[2], dw = dq[3];
     double dp = dq[4], drho = dq[0];
     
@@ -119,8 +121,9 @@ static void flux_Roe(std::vector<double> ql, std::vector<double> qr,
     df[2] = v_roe * a4 + ny_n * a5 + a7;
     df[3] = w_roe * a4 + nz_n * a5 + a8;
     
-    double cta1 = (u_roe*nx_n + v_roe*ny_n + w_roe*nz_n) + nt * inv_mag; 
-    df[4] = h_roe * a4 + cta1 * a5 + u_roe*a6 + v_roe*a7 + w_roe*a8 - c2*a1_coeff/gamma1;
+    // Fortran: hm*a4 + cta1*a5 ...
+    // cta1 = U_contra (un-normalized) in Fortran logic for flux construction
+    df[4] = h_roe * a4 + U_contra * inv_mag * a5 + u_roe*a6 + v_roe*a7 + w_roe*a8 - c2*a1_coeff/gamma1;
 
     for(int m=0; m<nl; ++m) {
         f[m] = 0.5 * (fl[m] + fr[m] - df[m]);
@@ -128,7 +131,7 @@ static void flux_Roe(std::vector<double> ql, std::vector<double> qr,
 }
 
 // ===========================================================================
-// 辅助：Metrics 插值
+// 辅助：Metrics 插值 (复刻 VALUE_HALF_NODE)
 // ===========================================================================
 static void interp_metrics_half(int n, int ni, const std::vector<double>& q, 
                                 std::vector<double>& val)
@@ -148,21 +151,35 @@ static void interp_metrics_half(int n, int ni, const std::vector<double>& q,
         return;
     }
 
+    // Boundary 0
     for (int m = 0; m < n; ++m) {
         double q1 = q[3*n+m], q2 = q[4*n+m], q3 = q[5*n+m], q4 = q[6*n+m];
         val[0*n+m] = (A3*q1 + B3*q2 + C3*q3 + D3*q4) / dd16;
+    }
+    // Boundary 1
+    for (int m = 0; m < n; ++m) {
+        double q1 = q[3*n+m], q2 = q[4*n+m], q3 = q[5*n+m], q4 = q[6*n+m];
         val[1*n+m] = (A2*q1 + B2*q2 + C2*q3 + D2*q4) / dd16;
     }
 
+    // Boundary ni
     for (int m = 0; m < n; ++m) {
         double qn   = q[(ni+2)*n+m];
         double qn_1 = q[(ni+1)*n+m];
         double qn_2 = q[(ni+0)*n+m];
         double qn_3 = q[(ni-1)*n+m];
-        val[ni*n+m]     = (A3*qn + B3*qn_1 + C3*qn_2 + D3*qn_3) / dd16;
+        val[ni*n+m] = (A3*qn + B3*qn_1 + C3*qn_2 + D3*qn_3) / dd16;
+    }
+    // Boundary ni-1
+    for (int m = 0; m < n; ++m) {
+        double qn   = q[(ni+2)*n+m];
+        double qn_1 = q[(ni+1)*n+m];
+        double qn_2 = q[(ni+0)*n+m];
+        double qn_3 = q[(ni-1)*n+m];
         val[(ni-1)*n+m] = (A2*qn + B2*qn_1 + C2*qn_2 + D2*qn_3) / dd16;
     }
 
+    // Inner
     for (int i = 2; i <= ni-2; ++i) {
         for (int m = 0; m < n; ++m) {
             double q_i   = q[(i+2)*n+m];
@@ -175,7 +192,48 @@ static void interp_metrics_half(int n, int ni, const std::vector<double>& q,
 }
 
 // ===========================================================================
-// WCNS 重构 + 通量计算
+// 高阶通量差分 (复刻 FLUX_DXYZ)
+// ===========================================================================
+static void compute_flux_diff_high_order(int nl, int ni, const std::vector<double>& f, 
+                                         std::vector<double>& df)
+{
+    if (ni <= 2) {
+        for (int i = 0; i < ni; ++i) {
+            for (int m = 0; m < nl; ++m) 
+                df[i*nl+m] = f[(i+1)*nl+m] - f[i*nl+m];
+        }
+        return;
+    }
+
+    // Inner: 6th order
+    // Fortran i=3 to ni-2 (1-based) -> C++ i=2 to ni-3 (0-based)
+    for (int i = 2; i < ni - 2; ++i) {
+        for (int m = 0; m < nl; ++m) {
+            double term1 = 2250.0 * (f[(i+1)*nl+m] - f[i*nl+m]);
+            double term2 = -125.0 * (f[(i+2)*nl+m] - f[(i-1)*nl+m]);
+            double term3 =    9.0 * (f[(i+3)*nl+m] - f[(i-2)*nl+m]);
+            df[i*nl+m] = (term1 + term2 + term3) / 1920.0;
+        }
+    }
+
+    // Boundary (0-based)
+    for (int m = 0; m < nl; ++m) {
+        // i=1 (Fortran 2) -> 4th order
+        df[1*nl+m] = (f[0*nl+m] - 27.0*f[1*nl+m] + 27.0*f[2*nl+m] - f[3*nl+m]) / 24.0;
+        
+        // i=ni-2 (Fortran ni-1) -> 4th order
+        df[(ni-2)*nl+m] = -(f[ni*nl+m] - 27.0*f[(ni-1)*nl+m] + 27.0*f[(ni-2)*nl+m] - f[(ni-3)*nl+m]) / 24.0;
+        
+        // i=0 (Fortran 1) -> 3rd order
+        df[0*nl+m] = (-23.0*f[0*nl+m] + 21.0*f[1*nl+m] + 3.0*f[2*nl+m] - f[3*nl+m]) / 24.0;
+
+        // i=ni-1 (Fortran ni) -> 3rd order
+        df[(ni-1)*nl+m] = -(-23.0*f[ni*nl+m] + 21.0*f[(ni-1)*nl+m] + 3.0*f[(ni-2)*nl+m] - f[(ni-3)*nl+m]) / 24.0;
+    }
+}
+
+// ===========================================================================
+// WCNS 重构 + 通量计算 (主函数)
 // ===========================================================================
 void InviscidFluxComputer::compute_flux_line(int ni, 
                                              const std::vector<double>& q_line,
@@ -191,20 +249,22 @@ void InviscidFluxComputer::compute_flux_line(int ni,
     double small = 1.0e-20;
 
     int n_face = ni + 1;
-    // [Safe Alloc]
-    if (n_face <= 0 || n_face > 1000000) return; // Sanity check
-
     std::vector<double> met_half(n_face * 5);
     interp_metrics_half(5, ni, met_line, met_half);
 
     std::vector<double> qwl(n_face * nl), qwr(n_face * nl);
+    // Temporary storage for boundary correction (u_l_old, u_r_old in Fortran)
+    std::vector<double> u_l_old(nl * 9), u_r_old(nl * 9); // Size 9 covers indices 1..8
+
     const double CL1=1.0/16.0, CL2=10.0/16.0, CL3=5.0/16.0;
     const double EPS=1.0e-6;
 
     int ist = 0, ied = ni;
+    // Check Ghost 3 (Index 0 in q_line) and Ghost (Index ni+5)
     if (q_line[0*6 + 0] < small) ist = 2; 
     if (q_line[(ni+5)*6 + 0] < small) ied = ni - 2;
 
+    // 1. WCNS Reconstruction (Main)
     for (int m = 0; m < nl; ++m) { 
         for (int i = ist; i <= ied; ++i) { 
             double q_m2 = q_line[(i+0)*6 + m];
@@ -254,11 +314,13 @@ void InviscidFluxComputer::compute_flux_line(int ni,
         }
     }
     
+    // Boundary Fixed Stencils (Initial)
     if (ist > 1) {
         for(int m=0; m<nl; ++m) {
             double q1 = q_line[3*6+m], q2 = q_line[4*6+m], q3 = q_line[5*6+m], q4 = q_line[6*6+m];
             qwl[0*nl+m] = (35.*q1 - 35.*q2 + 21.*q3 - 5.*q4)/16.;
             qwl[1*nl+m] = (5.*q1 + 15.*q2 - 5.*q3 + q4)/16.;
+            qwl[2*nl+m] = (-q1 + 9.*q2 + 9.*q3 - q4)/16.; 
             qwr[0*nl+m] = qwl[0*nl+m];
             qwr[1*nl+m] = qwl[1*nl+m];
         }
@@ -268,6 +330,7 @@ void InviscidFluxComputer::compute_flux_line(int ni,
             double qn = q_line[(ni+2)*6+m], qn1 = q_line[(ni+1)*6+m], qn2 = q_line[(ni)*6+m], qn3 = q_line[(ni-1)*6+m];
             qwr[ni*nl+m] = (35.*qn - 35.*qn1 + 21.*qn2 - 5.*qn3)/16.;
             qwr[(ni-1)*nl+m] = (5.*qn + 15.*qn1 - 5.*qn2 + qn3)/16.;
+            qwr[(ni-2)*nl+m] = (-qn + 9.*qn1 + 9.*qn2 - qn3)/16.; 
             qwl[ni*nl+m] = qwr[ni*nl+m];
             qwl[(ni-1)*nl+m] = qwr[(ni-1)*nl+m];
         }
@@ -276,56 +339,194 @@ void InviscidFluxComputer::compute_flux_line(int ni,
     std::vector<double> f(n_face * nl);
     std::vector<double> ql_loc(nl), qr_loc(nl), f_loc(nl);
 
-    for (int i = 0; i <= ni; ++i) {
-        for(int m=0; m<nl; ++m) { ql_loc[m] = qwl[i*nl+m]; qr_loc[m] = qwr[i*nl+m]; }
-        
-        double r_min = 1e-6, p_min = 1e-6;
-        if(ql_loc[0] < r_min || ql_loc[4] < p_min) {
-            int idx = std::max(0, i-1) + 2; 
-            for(int m=0; m<nl; ++m) ql_loc[m] = q_line[idx*6+m];
+    auto calc_flux_loop = [&](int start, int end) {
+        for (int i = start; i <= end; ++i) {
+            for(int m=0; m<nl; ++m) { ql_loc[m] = qwl[i*nl+m]; qr_loc[m] = qwr[i*nl+m]; }
+            
+            // Negative density/pressure protection (Low Order fallback)
+            double r_min = 1e-6, p_min = 1e-6;
+            if(ql_loc[0] <= r_min || ql_loc[4] <= p_min) {
+                int idx = std::max(0, i-1) + 2; 
+                for(int m=0; m<nl; ++m) ql_loc[m] = q_line[idx*6+m];
+            }
+            if(qr_loc[0] <= r_min || qr_loc[4] <= p_min) {
+                int idx = std::min(ni-1, i) + 2 + 1; 
+                for(int m=0; m<nl; ++m) qr_loc[m] = q_line[idx*6+m];
+            }
+
+            double kx = met_half[i*5+0];
+            double ky = met_half[i*5+1];
+            double kz = met_half[i*5+2];
+            double kt = met_half[i*5+3];
+            flux_Roe(ql_loc, qr_loc, kx, ky, kz, kt, efix, gamma, f_loc);
+            for(int m=0; m<nl; ++m) f[i*nl+m] = f_loc[m];
         }
-        if(qr_loc[0] < r_min || qr_loc[4] < p_min) {
-            int idx = std::min(ni-1, i) + 2 + 1; 
-            for(int m=0; m<nl; ++m) qr_loc[m] = q_line[idx*6+m];
+    };
+
+    // 2. Flux Calculation (Initial)
+    calc_flux_loop(0, ni);
+    
+    // 3. High Order Difference (Initial)
+    compute_flux_diff_high_order(nl, ni, f, fc);
+
+    // =======================================================================
+    // 4. [CRITICAL] Boundary Re-calculation Logic (复刻 Fortran ist>1)
+    // =======================================================================
+    // 对应 Fortran WCNSE5.f90 Source 108 之后的逻辑
+    
+    if (ist > 1) {
+        // Save old states
+        for(int i=1; i<=4; ++i) {
+            for(int m=0; m<nl; ++m) {
+                u_l_old[i*nl+m] = qwl[i*nl+m]; // u_l_old(m,i)
+                u_r_old[i*nl+m] = qwr[i*nl+m]; // u_r_old(m,i)
+            }
         }
 
-        flux_Roe(ql_loc, qr_loc, met_half[i*5+0], met_half[i*5+1], met_half[i*5+2], met_half[i*5+3], efix, gamma, f_loc);
-        for(int m=0; m<nl; ++m) f[i*nl+m] = f_loc[m];
-    }
-
-    for (int i = 0; i < ni; ++i) { 
+        // Left Boundary Correction
         for(int m=0; m<nl; ++m) {
-            fc[i*nl+m] = f[(i+1)*nl+m] - f[i*nl+m];
+            // 1/2
+            qwl[0*nl+m] = (3.*q_line[3*6+m] - 1.*q_line[4*6+m])/2.0;
+            qwr[0*nl+m] = qwl[0*nl+m];
+            // 3/2
+            qwl[1*nl+m] = (19.*q_line[3*6+m] + 25.*q_line[4*6+m] - 2.*q_line[5*6+m])/42.0;
+            qwr[1*nl+m] = qwl[1*nl+m];
+            // 5/2
+            qwl[2*nl+m] = (4.*q_line[3*6+m] + 3.*q_line[4*6+m] + 9.*q_line[5*6+m] + 2.*q_line[6*6+m])/18.0;
+            qwr[2*nl+m] = qwl[2*nl+m];
+            // 7/2
+            qwl[3*nl+m] = (-2.*q_line[3*6+m] + 3.*q_line[4*6+m] + 3.*q_line[5*6+m] + 2.*q_line[6*6+m])/6.0;
+            qwr[3*nl+m] = qwl[3*nl+m];
         }
+
+        calc_flux_loop(0, 3);
+
+        // Re-calc df(1) (i=0)
+        for(int m=0; m<nl; ++m)
+            fc[0*nl+m] = (-23.*f[0*nl+m] + 21.*f[1*nl+m] + 3.*f[2*nl+m] - f[3*nl+m])/24.0;
+
+        // More corrections for i=1..4
+        for(int m=0; m<nl; ++m) {
+            // 3/2
+            qwl[1*nl+m] = (3.*q_line[3*6+m] + 6.*q_line[4*6+m] - q_line[5*6+m])/8.0;
+            qwr[1*nl+m] = qwl[1*nl+m];
+            // 5/2
+            qwl[2*nl+m] = (-30.*q_line[3*6+m] + 145.*q_line[4*6+m] + 29.*q_line[5*6+m] - 8.*q_line[6*6+m])/136.0;
+            qwr[2*nl+m] = (2.*q_line[3*6+m] + 49.*q_line[4*6+m] + 125.*q_line[5*6+m] - 40.*q_line[6*6+m])/136.0;
+            // 7/2
+            qwl[3*nl+m] = (-q_line[4*6+m] + 6.*q_line[5*6+m] + 3.*q_line[6*6+m])/8.0;
+            qwr[3*nl+m] = qwl[3*nl+m];
+            // 9/2
+            qwl[4*nl+m] = (q_line[4*6+m] + 2.*q_line[5*6+m] + 5.*q_line[6*6+m])/8.0;
+            qwr[4*nl+m] = qwl[4*nl+m];
+            // 11/2
+            qwl[5*nl+m] = (q_line[4*6+m] + q_line[5*6+m] + 6.*q_line[6*6+m])/8.0;
+            qwr[5*nl+m] = qwl[5*nl+m];
+        }
+
+        calc_flux_loop(1, 5);
+
+        // Re-calc df(2) (i=1)
+        for(int m=0; m<nl; ++m)
+            fc[1*nl+m] = (-22.*f[1*nl+m] + 17.*f[2*nl+m] + 9.*f[3*nl+m] - 5.*f[4*nl+m] + f[5*nl+m])/24.0;
+
+        // Restore right states from old (3/2, 5/2, 7/2, 9/2)
+        for(int m=0; m<nl; ++m) {
+            qwr[1*nl+m] = u_r_old[1*nl+m]; // 3/2
+            // 5/2 left is recalc above, right is restored
+            qwl[2*nl+m] = (-29.*q_line[3*6+m] + 170.*q_line[4*6+m] + 63.*q_line[5*6+m] + 12.*q_line[6*6+m])/216.0;
+            qwr[2*nl+m] = u_r_old[2*nl+m]; 
+            qwr[3*nl+m] = u_r_old[3*nl+m]; // 7/2
+            qwr[4*nl+m] = u_r_old[4*nl+m]; // 9/2
+        }
+
+        calc_flux_loop(1, 4);
+
+        // Re-calc df(3) (i=2)
+        for(int m=0; m<nl; ++m)
+            fc[2*nl+m] = (f[1*nl+m] - 27.*f[2*nl+m] + 27.*f[3*nl+m] - f[4*nl+m])/24.0;
     }
 
-    if (ni >= 5) {
-        if (ist > 1) { 
-            for (int m = 0; m < nl; ++m) {
-                fc[0*nl+m] = (-23.0*f[0*nl+m] + 21.0*f[1*nl+m] + 3.0*f[2*nl+m] - 1.0*f[3*nl+m]) / 24.0;
-                fc[1*nl+m] = (-22.0*f[1*nl+m] + 17.0*f[2*nl+m] + 9.0*f[3*nl+m] - 5.0*f[4*nl+m] + f[5*nl+m]) / 24.0;
-                fc[2*nl+m] = (f[1*nl+m] - 27.0*f[2*nl+m] + 27.0*f[3*nl+m] - f[4*nl+m]) / 24.0;
+    if (ied < ni) {
+        // Save old states
+        for(int i=1; i<=4; ++i) {
+            int i1 = ni - i; // i=1 -> ni-1
+            for(int m=0; m<nl; ++m) {
+                u_l_old[(9-i)*nl+m] = qwl[i1*nl+m]; 
+                u_r_old[(9-i)*nl+m] = qwr[i1*nl+m];
             }
         }
 
-        if (ied < ni) { 
-            int N = ni; 
-            for (int m = 0; m < nl; ++m) {
-                fc[(ni-1)*nl+m] = -(-23.0*f[N*nl+m] + 21.0*f[(N-1)*nl+m] + 3.0*f[(N-2)*nl+m] - 1.0*f[(N-3)*nl+m]) / 24.0;
-                fc[(ni-2)*nl+m] = -(-22.0*f[(N-1)*nl+m] + 17.0*f[(N-2)*nl+m] + 9.0*f[(N-3)*nl+m] - 5.0*f[(N-4)*nl+m] + f[(N-5)*nl+m]) / 24.0;
-                fc[(ni-3)*nl+m] = -(f[(N-1)*nl+m] - 27.0*f[(N-2)*nl+m] + 27.0*f[(N-3)*nl+m] - f[(N-4)*nl+m]) / 24.0;
-            }
+        int N = ni;
+        for(int m=0; m<nl; ++m) {
+            // N+1/2
+            qwr[N*nl+m] = (3.*q_line[(N+2)*6+m] - 1.*q_line[(N+1)*6+m])/2.0;
+            qwl[N*nl+m] = qwr[N*nl+m];
+            // N-1/2
+            qwr[(N-1)*nl+m] = (19.*q_line[(N+2)*6+m] + 25.*q_line[(N+1)*6+m] - 2.*q_line[(N)*6+m])/42.0;
+            qwl[(N-1)*nl+m] = qwr[(N-1)*nl+m];
+            // N-3/2
+            qwr[(N-2)*nl+m] = (4.*q_line[(N+2)*6+m] + 3.*q_line[(N+1)*6+m] + 9.*q_line[(N)*6+m] + 2.*q_line[(N-1)*6+m])/18.0;
+            qwl[(N-2)*nl+m] = qwr[(N-2)*nl+m];
+            // N-5/2
+            qwr[(N-3)*nl+m] = (-2.*q_line[(N+2)*6+m] + 3.*q_line[(N+1)*6+m] + 3.*q_line[(N)*6+m] + 2.*q_line[(N-1)*6+m])/6.0;
+            qwl[(N-3)*nl+m] = qwr[(N-3)*nl+m];
         }
+
+        calc_flux_loop(N-3, N);
+
+        // Re-calc df(ni) (i=ni-1)
+        for(int m=0; m<nl; ++m)
+            fc[(N-1)*nl+m] = -(-23.*f[N*nl+m] + 21.*f[(N-1)*nl+m] + 3.*f[(N-2)*nl+m] - f[(N-3)*nl+m])/24.0;
+
+        // More corrections
+        for(int m=0; m<nl; ++m) {
+            // N-1/2
+            qwr[(N-1)*nl+m] = (3.*q_line[(N+2)*6+m] + 6.*q_line[(N+1)*6+m] - q_line[(N)*6+m])/8.0;
+            qwl[(N-1)*nl+m] = qwr[(N-1)*nl+m];
+            // N-3/2
+            qwr[(N-2)*nl+m] = (-30.*q_line[(N+2)*6+m] + 145.*q_line[(N+1)*6+m] + 29.*q_line[(N)*6+m] - 8.*q_line[(N-1)*6+m])/136.0;
+            qwl[(N-2)*nl+m] = (2.*q_line[(N+2)*6+m] + 49.*q_line[(N+1)*6+m] + 125.*q_line[(N)*6+m] - 40.*q_line[(N-1)*6+m])/136.0;
+            // N-5/2
+            qwr[(N-3)*nl+m] = (-q_line[(N+1)*6+m] + 6.*q_line[(N)*6+m] + 3.*q_line[(N-1)*6+m])/8.0;
+            qwl[(N-3)*nl+m] = qwr[(N-3)*nl+m];
+            // N-7/2
+            qwr[(N-4)*nl+m] = (q_line[(N+1)*6+m] + 2.*q_line[(N)*6+m] + 5.*q_line[(N-1)*6+m])/8.0;
+            qwl[(N-4)*nl+m] = qwr[(N-4)*nl+m];
+            // N-9/2
+            qwr[(N-5)*nl+m] = (q_line[(N+1)*6+m] + q_line[(N)*6+m] + 6.*q_line[(N-1)*6+m])/8.0;
+            qwl[(N-5)*nl+m] = qwr[(N-5)*nl+m];
+        }
+
+        calc_flux_loop(N-5, N-1);
+
+        // Re-calc df(ni-1) (i=ni-2)
+        for(int m=0; m<nl; ++m)
+            fc[(N-2)*nl+m] = -(-22.*f[(N-1)*nl+m] + 17.*f[(N-2)*nl+m] + 9.*f[(N-3)*nl+m] - 5.*f[(N-4)*nl+m] + f[(N-5)*nl+m])/24.0;
+
+        // Restore
+        for(int m=0; m<nl; ++m) {
+            qwl[(N-1)*nl+m] = u_l_old[8*nl+m];
+            qwr[(N-2)*nl+m] = (-29.*q_line[(N+2)*6+m] + 170.*q_line[(N+1)*6+m] + 63.*q_line[(N)*6+m] + 12.*q_line[(N-1)*6+m])/216.0;
+            qwl[(N-2)*nl+m] = u_l_old[7*nl+m];
+            qwl[(N-3)*nl+m] = u_l_old[6*nl+m];
+            qwl[(N-4)*nl+m] = u_l_old[5*nl+m];
+        }
+
+        calc_flux_loop(N-4, N-1);
+
+        // Re-calc df(ni-2) (i=ni-3)
+        for(int m=0; m<nl; ++m)
+            fc[(N-3)*nl+m] = -(f[(N-1)*nl+m] - 27.*f[(N-2)*nl+m] + 27.*f[(N-3)*nl+m] - f[(N-4)*nl+m])/24.0;
     }
 }
 
 void InviscidFluxComputer::compute_inviscid_rhs(orion::preprocess::FlowFieldSet& fs, 
                                                 const orion::core::Params& params)
 {
-    // [Global Try-Catch] 捕获任何分配失败，并打印具体信息
     try {
         int ng = fs.ng;
-        if (ng <= 0) ng = 1; // Sanity check
+        if (ng <= 0) ng = 1;
 
         for (int nb : fs.local_block_ids) {
             compute_block_inviscid(fs.blocks[nb], params, ng);
@@ -349,27 +550,19 @@ void InviscidFluxComputer::compute_block_inviscid(orion::preprocess::BlockField&
     int nx = dims[0], ny = dims[1], nz = dims[2];
     int idim = nx - 2*ng, jdim = ny - 2*ng, kdim = nz - 2*ng;
     
-    // 获取变量数 (如果 dq 分配了 5个变量，就用5)
     int nl = 5; 
     if (bf.dq.dims().size() > 3) nl = bf.dq.dims()[3];
 
-    // [关键] 检查 dimensions 是否足以支撑计算
-    if (idim <= 0 || jdim <= 0 || kdim <= 0) {
-        // Degenerated block for inviscid calculation (too small)
-        return; 
-    }
+    if (idim <= 0 || jdim <= 0 || kdim <= 0) return; 
 
     int max_dim = std::max({idim, jdim, kdim});
-    // line_size 计算
     long long line_size = (long long)max_dim + 2*ng + 6;
     
-    // [Explicit Check] 防止 line_size 异常大
     if (line_size > 10000000) { 
-        std::cerr << "[ERROR] Absurd line_size: " << line_size << " (nx="<<nx<<", ng="<<ng<<")\n";
+        std::cerr << "[ERROR] Absurd line_size: " << line_size << "\n";
         return;
     }
 
-    // 预分配内存 (使用 vector resize)
     std::vector<double> q_line; q_line.resize(line_size * 6); 
     std::vector<double> met_line; met_line.resize(line_size * 5); 
     std::vector<double> fc; fc.resize(line_size * nl); 
@@ -381,7 +574,7 @@ void InviscidFluxComputer::compute_block_inviscid(orion::preprocess::BlockField&
             for (int i_f = st_f; i_f <= ed_f; ++i_f) {
                 int idx = std::max(0, std::min(nx-1, ng + i_f - 1));
                 int line_idx = i_f - st_f;
-                if (line_idx < 0 || line_idx * 6 + 5 >= (int)q_line.size()) continue; // Bounds check
+                if (line_idx < 0 || line_idx * 6 + 5 >= (int)q_line.size()) continue;
 
                 for (int m = 0; m < 5; ++m) q_line[line_idx * 6 + m] = bf.prim(idx, j, k, m);
                 q_line[line_idx * 6 + 5] = bf.prim(idx, j, k, 5);
