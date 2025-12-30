@@ -26,6 +26,7 @@ static void update_thermodynamics_block(orion::preprocess::BlockField& bf,
 
     double moo2 = moo * moo;
 
+    // 1. 更新内部区域 (Inner)
     int i_s = ng, i_e = ng + idim - 1;
     int j_s = ng, j_e = ng + jdim - 1;
     int k_s = ng, k_e = ng + kdim - 1;
@@ -35,14 +36,18 @@ static void update_thermodynamics_block(orion::preprocess::BlockField& bf,
             for (int i = i_s; i <= i_e; ++i) {
                 double rho = bf.prim(i, j, k, 0);
                 double p   = bf.prim(i, j, k, 4);
+                // 内部区域假定 rho > 0
                 double a2 = gamma * p / rho;
                 bf.c(i, j, k) = std::sqrt(std::abs(a2));
+                
+                // [修正] T 存储在 prim(..., 5)
                 if (nvis == 1) bf.prim(i, j, k, 5) = moo2 * a2;
             }
         }
     }
 
-    int layers_to_update = (nvis == 1) ? ng : 1; 
+    // 2. 更新 Ghost 区域 (处理可能的负密度)
+    int layers_to_update = ng; // 覆盖所有 Ghost 以策安全
 
     for (int dir = 0; dir < 3; ++dir) {
         for (int l = 1; l <= layers_to_update; ++l) {
@@ -63,9 +68,14 @@ static void update_thermodynamics_block(orion::preprocess::BlockField& bf,
                         for (int i = i_start; i <= i_stop; ++i) {
                             double rho = bf.prim(i, j, k, 0);
                             double p   = bf.prim(i, j, k, 4);
-                            if (l == 3) rho = std::abs(rho);
+                            
+                            // Ghost 区域取绝对值密度，防止 sqrt 崩溃
+                            rho = std::abs(rho);
+                            
                             double a2 = gamma * p / rho;
                             bf.c(i, j, k) = std::sqrt(std::abs(a2));
+                            
+                            // [修正] T 存储在 prim(..., 5)
                             if (nvis == 1) bf.prim(i, j, k, 5) = moo2 * a2;
                         }
                     }
@@ -79,19 +89,22 @@ static void update_viscosity_block(orion::preprocess::BlockField& bf,
                                    double visc, int method, int ng)
 {
     const auto& dims = bf.prim.dims();
-    int idim = dims[0] - 2 * ng;
-    int jdim = dims[1] - 2 * ng;
-    int kdim = dims[2] - 2 * ng;
-
-    int cmethod = method - 1;
-    int i_s = ng, i_e = ng + idim - 1 + cmethod;
-    int j_s = ng, j_e = ng + jdim - 1 + cmethod;
-    int k_s = ng, k_e = ng + kdim - 1 + cmethod;
+    
+    // [策略说明] 
+    // 虽然 Fortran compute_visl_ns 循环看起来从 1 开始，
+    // 但 newvis.f90 的 Flux 计算使用了 i=0 的粘性。
+    // 为防止边界通量错误，C++ 这里计算全场（包括 Ghost）。
+    int i_s = 0, i_e = dims[0] - 1;
+    int j_s = 0, j_e = dims[1] - 1;
+    int k_s = 0, k_e = dims[2] - 1;
 
     for (int k = k_s; k <= k_e; ++k) {
         for (int j = j_s; j <= j_e; ++j) {
             for (int i = i_s; i <= i_e; ++i) {
-                double tm = bf.prim(i, j, k,5);
+                // [修正] T 从 prim(..., 5) 读取
+                double tm = bf.prim(i, j, k, 5); 
+                
+                if (tm < 1e-6) tm = 1e-6; // 保护防止除零
                 bf.mu(i, j, k) = tm * std::sqrt(tm) * (1.0 + visc) / (tm + visc);
             }
         }
@@ -119,9 +132,10 @@ static void update_conservative_block(orion::preprocess::BlockField& bf,
         double w   = bf.prim(i, j, k, 3);
         double p   = bf.prim(i, j, k, 4);
 
-        bf.q(i, j, k, 0) = rho;
-        double rho_calc = use_abs_rho ? std::abs(rho) : rho;
+        // [复刻 Fortran] Ghost 区域强制使用正密度计算 Q
+        double rho_calc = (use_abs_rho || rho < 0.0) ? std::abs(rho) : rho;
 
+        bf.q(i, j, k, 0) = rho_calc; 
         bf.q(i, j, k, 1) = rho_calc * u;
         bf.q(i, j, k, 2) = rho_calc * v;
         bf.q(i, j, k, 3) = rho_calc * w;
@@ -130,12 +144,15 @@ static void update_conservative_block(orion::preprocess::BlockField& bf,
         bf.q(i, j, k, 4) = p * gm1_inv + ke;
     };
 
+    // 1. 更新内部区域
     for (int k = k_s; k <= k_e; ++k) 
         for (int j = j_s; j <= j_e; ++j) 
             for (int i = i_s; i <= i_e; ++i) 
                 calc_q(i, j, k, false);
 
-    int layers_to_update = 1;
+    // 2. 更新所有 Ghost 区域
+    int layers_to_update = ng; 
+    
     for (int dir = 0; dir < 3; ++dir) {
         for (int l = 1; l <= layers_to_update; ++l) {
             int idx_min = ng - l;
@@ -145,6 +162,7 @@ static void update_conservative_block(orion::preprocess::BlockField& bf,
                 int k_st = (dir==2) ? f_idx : k_s; int k_ed = (dir==2) ? f_idx : k_e;
                 int j_st = (dir==1) ? f_idx : j_s; int j_ed = (dir==1) ? f_idx : j_e;
                 int i_st = (dir==0) ? f_idx : i_s; int i_ed = (dir==0) ? f_idx : i_e;
+                
                 for (int k = k_st; k <= k_ed; ++k)
                     for (int j = j_st; j <= j_ed; ++j)
                         for (int i = i_st; i <= i_ed; ++i)
@@ -166,9 +184,19 @@ void StateUpdater::update_flow_states(orion::preprocess::FlowFieldSet& fs,
 
     for (int nb : fs.local_block_ids) {
         auto& bf = fs.blocks[nb];
+        
+        // 1. 更新热力学变量 (c, T)
         update_thermodynamics_block(bf, gamma, moo, nvis, ng);
-        if (nvis == 1) update_viscosity_block(bf, visc, method, ng);
+        
+        // 2. 更新粘性系数 (mu)
+        if (nvis == 1) {
+            update_viscosity_block(bf, visc, method, ng);
+        }
+        
+        // 3. 更新守恒变量 (Q)
         update_conservative_block(bf, gamma, ng);
+        
+        // 4. 清零残差 (DQ)
         bf.dq.fill(0.0);
     }
 }
@@ -184,8 +212,14 @@ static double calc_spectral_radius(const double* prim, double gamma,
     double rho = prim[0];
     double u = prim[1], v = prim[2], w = prim[3];
     double p = prim[4];
+    
+    // 保护
+    if (rho < 1e-30) rho = 1e-30;
+    if (p < 1e-30) p = 1e-30;
+
     double c2 = gamma * p / rho;
-    double c = std::sqrt(std::max(c2, 1.0e-30));
+    double c = std::sqrt(c2);
+    
     double U = u*kx + v*ky + w*kz + kt;
     double grad_mag = std::sqrt(kx*kx + ky*ky + kz*kz);
     return std::abs(U) + c * grad_mag;
@@ -193,6 +227,7 @@ static double calc_spectral_radius(const double* prim, double gamma,
 
 static double calc_visc_spectral_radius(const double* prim, double mu, double kx, double ky, double kz) {
     double rho = prim[0];
+    if (rho < 1e-30) rho = 1e-30;
     double grad2 = kx*kx + ky*ky + kz*kz;
     return (mu / rho) * grad2; 
 }
@@ -210,8 +245,12 @@ static void compute_flux_splitting(const double* prim,
 
     double nx = metric[0], ny = metric[1], nz = metric[2], nt = metric[3];
     double v2 = um*um + vm*vm + wm*wm;
+    
+    if (rm < 1e-30) rm = 1e-30;
+    if (pm < 1e-30) pm = 1e-30;
+
     double c2 = gamma * pm / rm;
-    double cm = std::sqrt(std::max(c2, 1.0e-30));
+    double cm = std::sqrt(c2);
     double H = (gamma / (gamma - 1.0)) * (pm / rm) + 0.5 * v2; 
 
     double ct = nx*um + ny*vm + nz*wm + nt;
@@ -219,6 +258,7 @@ static void compute_flux_splitting(const double* prim,
     double sml = 1.0e-30;
     if (grad_mag < sml) grad_mag = sml;
     
+    // Splitting
     double l1 = ct;
     double l4 = ct + cm * grad_mag;
     double l5 = ct - cm * grad_mag;
@@ -469,9 +509,9 @@ static void update_limited(orion::preprocess::BlockField& bf,
                 double u_n = q_final[1]*inv_r;
                 double v_n = q_final[2]*inv_r;
                 double w_n = q_final[3]*inv_r;
-                p_n = gm1 * (q_final[4] - 0.5*r_n*(u_n*u_n + v_n*v_n + w_n*w_n));
+                double p_n_final = gm1 * (q_final[4] - 0.5*r_n*(u_n*u_n + v_n*v_n + w_n*w_n));
                 
-                if (r_n <= r_min || p_n <= p_min) {
+                if (r_n <= r_min || p_n_final <= p_min) {
                     bf.prim(i,j,k,0) = r;
                     bf.prim(i,j,k,1) = u;
                     bf.prim(i,j,k,2) = v;
@@ -482,7 +522,7 @@ static void update_limited(orion::preprocess::BlockField& bf,
                     bf.prim(i,j,k,1) = u_n;
                     bf.prim(i,j,k,2) = v_n;
                     bf.prim(i,j,k,3) = w_n;
-                    bf.prim(i,j,k,4) = p_n;
+                    bf.prim(i,j,k,4) = p_n_final;
                 }
             }
         }
@@ -510,9 +550,6 @@ void StateUpdater::update_solution(orion::preprocess::FlowFieldSet& fs,
         std::vector<double> rhs_vec(total_size);
         
         // Manual copy: bf.dq -> rhs_vec
-        // bf.dq (OrionArray) likely has operator() or flat access.
-        // We assume contiguous layout matching linear index.
-        // Safe robust copy:
         int nx=dims[0], ny=dims[1], nz=dims[2], nl=5;
         for(int k=0; k<nz; ++k)
             for(int j=0; j<ny; ++j)
