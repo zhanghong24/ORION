@@ -8,8 +8,7 @@
 namespace orion::solver {
 
 // ===========================================================================
-// [Helper 1] DUVWT_NODE_LINE_virtual
-// 功能：计算线上网格点的导数 (4阶中心 + 边界偏心)
+// [Helper 1] DUVWT_NODE_LINE_virtual (导数计算 - 节点)
 // ===========================================================================
 static void compute_node_deriv_line(int n, int ni, const std::vector<double>& q, 
                                     std::vector<double>& dq, int flag_left, int flag_right) 
@@ -30,6 +29,7 @@ static void compute_node_deriv_line(int n, int ni, const std::vector<double>& q,
     int st = 1;
     int ed = ni;
 
+    // 左边界偏心处理
     if (flag_left < 0) {
         st = 3;
         for (int m = 0; m < n; ++m) {
@@ -39,6 +39,7 @@ static void compute_node_deriv_line(int n, int ni, const std::vector<double>& q,
         }
     }
 
+    // 右边界偏心处理
     if (flag_right < 0) {
         ed = ni - 2;
         for (int m = 0; m < n; ++m) {
@@ -53,6 +54,7 @@ static void compute_node_deriv_line(int n, int ni, const std::vector<double>& q,
         }
     }
 
+    // 内部 4阶中心差分
     for (int i = st; i <= ed; ++i) {
         for (int m = 0; m < n; ++m) {
             double q_p1 = q[(i+3)*n+m];
@@ -65,8 +67,7 @@ static void compute_node_deriv_line(int n, int ni, const std::vector<double>& q,
 }
 
 // ===========================================================================
-// [Helper 2] DUVWT_half_line_virtual
-// 功能：计算线上界面(半点)的导数
+// [Helper 2] DUVWT_half_line_virtual (导数计算 - 半点)
 // ===========================================================================
 static void compute_half_deriv_line(int n, int ni, const std::vector<double>& q, 
                                     std::vector<double>& dq, int flag_left, int flag_right)
@@ -123,7 +124,7 @@ static void compute_half_deriv_line(int n, int ni, const std::vector<double>& q,
 }
 
 // ===========================================================================
-// [Helper 3] 插值函数
+// [Helper 3] 插值函数 (节点 -> 半点)
 // ===========================================================================
 static void interp_line_to_half(int n, int ni, const std::vector<double>& q, 
                                 std::vector<double>& val, int flag_left, int flag_right)
@@ -177,37 +178,26 @@ static void interp_line_to_half(int n, int ni, const std::vector<double>& q,
 }
 
 // ===========================================================================
-// [Helper 4] 修正后的 DUVWT_DXYZ
-// 功能：坐标变换 (计算域导数 -> 物理域导数)
-// 逻辑：Chain Rule: d/dx = xi_x * d/dxi + eta_x * d/deta + zeta_x * d/dzeta
+// [Helper 4] 坐标变换 (不变)
 // ===========================================================================
 static void transform_derivs_to_phys(int ni, const std::vector<double>& duvwt, 
                                      const std::vector<double>& kxyz, 
                                      const std::vector<double>& vol,
                                      std::vector<double>& duvwtdxyz)
 {
-    // kxyz layout: [0:kcx, 1:kcy, 2:kcz, 3:etx, 4:ety, 5:etz, 6:ctx, 7:cty, 8:ctz]
-    
     for (int i = 0; i <= ni; ++i) {
         double vol_inv = 1.0 / vol[i];
         
-        for (int m = 0; m < 3; ++m) { // m=0(x), 1(y), 2(z) -> physical deriv direction
-            // Coeffs for d/dx_m:
-            // if m=0 (x): xi_x(0), eta_x(3), zeta_x(6)
-            // if m=1 (y): xi_y(1), eta_y(4), zeta_y(7)
-            // if m=2 (z): xi_z(2), eta_z(5), zeta_z(8)
-            
+        for (int m = 0; m < 3; ++m) { 
             double k1 = kxyz[i*9 + m];     // xi_xm
             double k2 = kxyz[i*9 + m + 3]; // eta_xm
             double k3 = kxyz[i*9 + m + 6]; // zeta_xm
 
-            // Apply to u, v, w, T
             for (int v_idx = 0; v_idx < 4; ++v_idx) {
-                double d_xi   = duvwt[i*12 + v_idx];     // 0, 1, 2, 3
-                double d_eta  = duvwt[i*12 + v_idx + 4]; // 4, 5, 6, 7
-                double d_zeta = duvwt[i*12 + v_idx + 8]; // 8, 9, 10, 11
+                double d_xi   = duvwt[i*12 + v_idx];     
+                double d_eta  = duvwt[i*12 + v_idx + 4]; 
+                double d_zeta = duvwt[i*12 + v_idx + 8]; 
                 
-                // Out index: v_idx*3 + m (u_x, u_y, u_z, v_x...)
                 duvwtdxyz[i*12 + v_idx*3 + m] = (k1*d_xi + k2*d_eta + k3*d_zeta) * vol_inv;
             }
         }
@@ -215,9 +205,7 @@ static void transform_derivs_to_phys(int ni, const std::vector<double>& duvwt,
 }
 
 // ===========================================================================
-// [Helper 5] 修正后的 FLUX_VIS_LINE_new
-// 功能：计算物理粘性通量
-// 参数：explicit_nxyz (显式传入法向量，防止混乱)
+// [Helper 5] 计算物理粘性通量 (不变)
 // ===========================================================================
 static void compute_viscous_flux_1d(int ni, const std::vector<double>& uvwt, 
                                     const std::vector<double>& duvwtdxyz,
@@ -233,15 +221,10 @@ static void compute_viscous_flux_1d(int ni, const std::vector<double>& uvwt,
         double kcp = vslt2[i];
         double vscc = vs * CC;
 
-        // Physical Derivatives
-        // 0-2: u_x, u_y, u_z
-        // 3-5: v_x, v_y, v_z
-        // 6-8: w_x, w_y, w_z
         double dudx = duvwtdxyz[i*12 + 0], dudy = duvwtdxyz[i*12 + 1], dudz = duvwtdxyz[i*12 + 2];
         double dvdx = duvwtdxyz[i*12 + 3], dvdy = duvwtdxyz[i*12 + 4], dvdz = duvwtdxyz[i*12 + 5];
         double dwdx = duvwtdxyz[i*12 + 6], dwdy = duvwtdxyz[i*12 + 7], dwdz = duvwtdxyz[i*12 + 8];
 
-        // Stress Tensor
         double txx = vscc * (2.0*dudx - dvdy - dwdz);
         double tyy = vscc * (2.0*dvdy - dwdz - dudx);
         double tzz = vscc * (2.0*dwdz - dudx - dvdy);
@@ -254,21 +237,14 @@ static void compute_viscous_flux_1d(int ni, const std::vector<double>& uvwt,
         double ny = normal_vec[i*3 + 1];
         double nz = normal_vec[i*3 + 2];
 
-        // Continuity
         fv[i*5 + 0] = 0.0;
-
-        // Momentum: tau_ij * n_j
         fv[i*5 + 1] = txx*nx + txy*ny + txz*nz;
         fv[i*5 + 2] = txy*nx + tyy*ny + tyz*nz;
         fv[i*5 + 3] = txz*nx + tyz*ny + tzz*nz;
 
-        // Energy
         double u = uvwt[i*4 + 0], v = uvwt[i*4 + 1], w = uvwt[i*4 + 2];
         double work = u*fv[i*5 + 1] + v*fv[i*5 + 2] + w*fv[i*5 + 3];
         
-        // Heat Flux: k * dT/dn
-        // dT/dn = dT/dx * nx + dT/dy * ny + dT/dz * nz
-        // duvwtdxyz 9,10,11 are T_x, T_y, T_z
         double heat = kcp * (duvwtdxyz[i*12 + 9]*nx + duvwtdxyz[i*12 + 10]*ny + duvwtdxyz[i*12 + 11]*nz);
 
         fv[i*5 + 4] = work + heat;
@@ -276,15 +252,46 @@ static void compute_viscous_flux_1d(int ni, const std::vector<double>& uvwt,
 }
 
 // ===========================================================================
-// [Helper 6] FLUX_DXYZ
+// [Helper 6] FLUX_DXYZ (复刻 Fortran 高阶差分)
 // ===========================================================================
 static void compute_flux_diff_1d(int nl, int ni, const std::vector<double>& fv, 
                                  std::vector<double>& dfv)
 {
-    for (int i = 0; i < ni; ++i) {
-        for (int m = 0; m < nl; ++m) {
-            dfv[i*nl + m] = fv[(i+1)*nl + m] - fv[i*nl + m];
+    // 如果网格太少，退化为 2 阶
+    if (ni <= 2) {
+        for (int i = 0; i < ni; ++i) {
+            for (int m = 0; m < nl; ++m) {
+                dfv[i*nl + m] = fv[(i+1)*nl + m] - fv[i*nl + m];
+            }
         }
+        return;
+    }
+
+    // 内部: 6阶差分
+    for (int i = 2; i < ni - 2; ++i) { // 0-based: 2 to ni-3
+        for (int m = 0; m < nl; ++m) {
+            double term1 = 2250.0 * (fv[(i+1)*nl+m] - fv[i*nl+m]);
+            double term2 = -125.0 * (fv[(i+2)*nl+m] - fv[(i-1)*nl+m]);
+            double term3 =    9.0 * (fv[(i+3)*nl+m] - fv[(i-2)*nl+m]);
+            dfv[i*nl+m] = (term1 + term2 + term3) / 1920.0;
+        }
+    }
+
+    // 边界处理 (0-based indices)
+    for (int m = 0; m < nl; ++m) {
+        // i = 1 (Fortran 2)
+        // Fortran: ( f(0) - 27*f(1) + 27*f(2) - f(3) ) / 24
+        // C++: fv has 0-based indexing matching Fortran relative order
+        dfv[1*nl+m] = (fv[0*nl+m] - 27.0*fv[1*nl+m] + 27.0*fv[2*nl+m] - fv[3*nl+m]) / 24.0;
+        
+        // i = ni-2 (Fortran ni-1)
+        dfv[(ni-2)*nl+m] = -(fv[ni*nl+m] - 27.0*fv[(ni-1)*nl+m] + 27.0*fv[(ni-2)*nl+m] - fv[(ni-3)*nl+m]) / 24.0;
+        
+        // i = 0 (Fortran 1) -> 3rd Order
+        dfv[0*nl+m] = (-23.0*fv[0*nl+m] + 21.0*fv[1*nl+m] + 3.0*fv[2*nl+m] - fv[3*nl+m]) / 24.0;
+
+        // i = ni-1 (Fortran ni) -> 3rd Order
+        dfv[(ni-1)*nl+m] = -(-23.0*fv[ni*nl+m] + 21.0*fv[(ni-1)*nl+m] + 3.0*fv[(ni-2)*nl+m] - fv[(ni-3)*nl+m]) / 24.0;
     }
 }
 
@@ -305,12 +312,14 @@ void FluxComputer::compute_derivatives_cell(const orion::preprocess::BlockField&
 
     for (int k = ng; k < nz - ng; ++k) {
         for (int j = ng; j < ny - ng; ++j) {
-            int f_l = (bf.prim(ng-2, j, k, 0) < 0) ? -1 : 0;
-            int f_r = (bf.prim(ng+idim+3, j, k, 0) < 0) ? -1 : 0;
+            // 使用 ng-3 检查最外层 Ghost
+            int f_l = (bf.prim(ng-3, j, k, 0) < 0) ? -1 : 0;
+            int f_r = (bf.prim(ng+idim+2, j, k, 0) < 0) ? -1 : 0;
 
             for (int i = -2; i < idim + 3; ++i) {
                 int idx = std::max(0, std::min(nx-1, ng + i));
                 for(int m=0; m<4; ++m) {
+                    // [修正] T 在 prim(..., 5)
                     double val = (m<3) ? bf.prim(idx,j,k,m+1) : bf.prim(idx,j,k,5);
                     q_line[(i+2)*4 + m] = val;
                 }
@@ -327,11 +336,12 @@ void FluxComputer::compute_derivatives_cell(const orion::preprocess::BlockField&
     std::vector<double> dq_line_j(jdim * 4);
     for (int k = ng; k < nz - ng; ++k) {
         for (int i = ng; i < nx - ng; ++i) {
-            int f_l = (bf.prim(i, ng-2, k, 0) < 0) ? -1 : 0;
-            int f_r = (bf.prim(i, ng+jdim+3, k, 0) < 0) ? -1 : 0;
+            int f_l = (bf.prim(i, ng-3, k, 0) < 0) ? -1 : 0;
+            int f_r = (bf.prim(i, ng+jdim+2, k, 0) < 0) ? -1 : 0;
             for (int j = -2; j < jdim + 3; ++j) {
                 int idx = std::max(0, std::min(ny-1, ng + j));
                 for(int m=0; m<4; ++m) {
+                    // [修正] T 在 prim(..., 5)
                     double val = (m<3) ? bf.prim(i,idx,k,m+1) : bf.prim(i,idx,k,5);
                     q_line_j[(j+2)*4 + m] = val;
                 }
@@ -348,11 +358,12 @@ void FluxComputer::compute_derivatives_cell(const orion::preprocess::BlockField&
     std::vector<double> dq_line_k(kdim * 4);
     for (int j = ng; j < ny - ng; ++j) {
         for (int i = ng; i < nx - ng; ++i) {
-            int f_l = (bf.prim(i, j, ng-2, 0) < 0) ? -1 : 0;
-            int f_r = (bf.prim(i, j, ng+kdim+3, 0) < 0) ? -1 : 0;
+            int f_l = (bf.prim(i, j, ng-3, 0) < 0) ? -1 : 0;
+            int f_r = (bf.prim(i, j, ng+kdim+2, 0) < 0) ? -1 : 0;
             for (int k = -2; k < kdim + 3; ++k) {
                 int idx = std::max(0, std::min(nz-1, ng + k));
                 for(int m=0; m<4; ++m) {
+                    // [修正] T 在 prim(..., 5)
                     double val = (m<3) ? bf.prim(i,j,idx,m+1) : bf.prim(i,j,idx,5);
                     q_line_k[(k+2)*4 + m] = val;
                 }
@@ -382,11 +393,12 @@ void FluxComputer::compute_derivatives_face(const orion::preprocess::BlockField&
 
     for (int k = ng; k < nz - ng; ++k) {
         for (int j = ng; j < ny - ng; ++j) {
-            int f_l = (bf.prim(ng-2, j, k, 0) < 0) ? -1 : 0;
-            int f_r = (bf.prim(ng+idim+3, j, k, 0) < 0) ? -1 : 0;
+            int f_l = (bf.prim(ng-3, j, k, 0) < 0) ? -1 : 0;
+            int f_r = (bf.prim(ng+idim+2, j, k, 0) < 0) ? -1 : 0;
             for (int i = -2; i < idim + 3; ++i) {
                 int idx = std::max(0, std::min(nx-1, ng + i));
                 for(int m=0; m<4; ++m) {
+                    // [修正] T 在 prim(..., 5)
                     double val = (m<3) ? bf.prim(idx,j,k,m+1) : bf.prim(idx,j,k,5);
                     q_line[(i+2)*4 + m] = val;
                 }
@@ -405,12 +417,13 @@ void FluxComputer::compute_derivatives_face(const orion::preprocess::BlockField&
     std::vector<double> dq_line_j((jdim + 1) * 4); 
     for (int k = ng; k < nz - ng; ++k) {
         for (int i = ng; i < nx - ng; ++i) {
-            int f_l = (bf.prim(i, ng-2, k, 0) < 0) ? -1 : 0;
-            int f_r = (bf.prim(i, ng+jdim+3, k, 0) < 0) ? -1 : 0;
+            int f_l = (bf.prim(i, ng-3, k, 0) < 0) ? -1 : 0;
+            int f_r = (bf.prim(i, ng+jdim+2, k, 0) < 0) ? -1 : 0;
             for (int j = -2; j < jdim + 3; ++j) {
                 int idx = std::max(0, std::min(ny-1, ng + j));
                 for(int m=0; m<4; ++m) {
-                    double val = (m<3) ? bf.prim(i,idx,k,m+1) : bf.prim(i,idx,k, 5);
+                    // [修正] T 在 prim(..., 5)
+                    double val = (m<3) ? bf.prim(i,idx,k,m+1) : bf.prim(i,idx,k,5);
                     q_line_j[(j+2)*4 + m] = val;
                 }
             }
@@ -428,12 +441,13 @@ void FluxComputer::compute_derivatives_face(const orion::preprocess::BlockField&
     std::vector<double> dq_line_k((kdim + 1) * 4); 
     for (int j = ng; j < ny - ng; ++j) {
         for (int i = ng; i < nx - ng; ++i) {
-            int f_l = (bf.prim(i, j, ng-2, 0) < 0) ? -1 : 0;
-            int f_r = (bf.prim(i, j, ng+kdim+3, 0) < 0) ? -1 : 0;
+            int f_l = (bf.prim(i, j, ng-3, 0) < 0) ? -1 : 0;
+            int f_r = (bf.prim(i, j, ng+kdim+2, 0) < 0) ? -1 : 0;
             for (int k = -2; k < kdim + 3; ++k) {
                 int idx = std::max(0, std::min(nz-1, ng + k));
                 for(int m=0; m<4; ++m) {
-                    double val = (m<3) ? bf.prim(i,j,idx,m+1) : bf.prim(i,j,idx, 5);
+                    // [修正] T 在 prim(..., 5)
+                    double val = (m<3) ? bf.prim(i,j,idx,m+1) : bf.prim(i,j,idx,5);
                     q_line_k[(k+2)*4 + m] = val;
                 }
             }
@@ -482,41 +496,43 @@ void FluxComputer::compute_viscous_flux_block(orion::preprocess::BlockField& bf,
     std::vector<double> vslt2_half(n_face);
     std::vector<double> fv(5 * n_face); 
     std::vector<double> dfv(5 * idim);
-    std::vector<double> normal_vec(3 * n_face); // Explicit Normal
+    std::vector<double> normal_vec(3 * n_face); 
     
     std::vector<double> q_line((idim+6)*9); 
 
     for (int k = ng; k < nz - ng; ++k) {
         for (int j = ng; j < ny - ng; ++j) {
-            int f_l = (bf.prim(ng-2, j, k, 0) < 0) ? -1 : 0;
-            int f_r = (bf.prim(ng+idim+3, j, k, 0) < 0) ? -1 : 0;
+            int f_l = (bf.prim(ng-3, j, k, 0) < 0) ? -1 : 0;
+            int f_r = (bf.prim(ng+idim+2, j, k, 0) < 0) ? -1 : 0;
 
             // UVWT
             for (int i = -2; i < idim + 3; ++i) {
                 int idx = std::max(0, std::min(nx-1, ng + i));
                 for(int m=0; m<4; ++m) {
-                    double val = (m<3) ? bf.prim(idx,j,k,m+1) : bf.prim(idx,j,k, 5);
+                    // [修正] T 在 prim(..., 5)
+                    double val = (m<3) ? bf.prim(idx,j,k,m+1) : bf.prim(idx,j,k,5);
                     q_line[(i+2)*4 + m] = val;
                 }
             }
             interp_line_to_half(4, idim, q_line, uvwt_half, f_l, f_r);
 
+            // 几何量/粘性强制使用中心插值 (0, 0)
+            
             // Viscosity
             for (int i = -2; i < idim + 3; ++i) q_line[(i+2)*1 + 0] = bf.mu(std::max(0, std::min(nx-1, ng+i)), j, k);
-            interp_line_to_half(1, idim, q_line, vslt1_half, f_l, f_r);
+            interp_line_to_half(1, idim, q_line, vslt1_half, 0, 0); // Force central
             for(int i=0; i<n_face; ++i) vslt2_half[i] = vslt1_half[i] * cp_prl;
 
             // Vol
             for (int i = -2; i < idim + 3; ++i) q_line[(i+2)*1 + 0] = bf.vol(std::max(0, std::min(nx-1, ng+i)), j, k);
-            interp_line_to_half(1, idim, q_line, vol_half, f_l, f_r);
+            interp_line_to_half(1, idim, q_line, vol_half, 0, 0); // Force central
 
             // Metrics
-            // Standard Layout: 0:kcx, 1:kcy, 2:kcz, 3:etx...
             for (int i = -2; i < idim + 3; ++i) {
                 int idx = std::max(0, std::min(nx-1, ng + i));
                 for(int m=0; m<9; ++m) q_line[(i+2)*9 + m] = bf.metrics(idx,j,k, m);
             }
-            interp_line_to_half(9, idim, q_line, kxyz_half, f_l, f_r);
+            interp_line_to_half(9, idim, q_line, kxyz_half, 0, 0); // Force central
 
             // Extract Normal (I-dir: kcx, kcy, kcz -> 0,1,2)
             for(int i=0; i<n_face; ++i) {
@@ -525,20 +541,18 @@ void FluxComputer::compute_viscous_flux_block(orion::preprocess::BlockField& bf,
                 normal_vec[i*3+2] = kxyz_half[i*9+2];
             }
 
-            // Derivatives
+            // Derivatives (Force central)
             std::vector<double> duvwt_cc_face(n_face * 8);
             for (int i = -2; i < idim + 3; ++i) {
                 int src_idx = std::max(ng, std::min(nx-ng-1, ng+i));
                 for(int m=0; m<8; ++m) q_line[(i+2)*8+m] = duvwt(src_idx, j, k, m+4);
             }
-            interp_line_to_half(8, idim, q_line, duvwt_cc_face, f_l, f_r);
+            interp_line_to_half(8, idim, q_line, duvwt_cc_face, 0, 0); // Force central
 
             for(int i=0; i<n_face; ++i) {
                 int mid_idx = ng + i - 1;
-                // 1-4 from face
                 if(mid_idx>=0 && mid_idx<nx) 
                     for(int m=0; m<4; ++m) duvwt_half[i*12 + m] = duvwt_mid(mid_idx,j,k, m);
-                // 5-12 from interp
                 for(int m=0; m<8; ++m) duvwt_half[i*12 + m+4] = duvwt_cc_face[i*8+m];
             }
 
@@ -546,6 +560,8 @@ void FluxComputer::compute_viscous_flux_block(orion::preprocess::BlockField& bf,
             std::vector<double> duvwtdxyz(12 * n_face);
             transform_derivs_to_phys(idim, duvwt_half, kxyz_half, vol_half, duvwtdxyz);
             compute_viscous_flux_1d(idim, uvwt_half, duvwtdxyz, vslt1_half, vslt2_half, normal_vec, fv);
+            
+            // 使用高阶差分
             compute_flux_diff_1d(5, idim, fv, dfv);
 
             // Update
@@ -559,66 +575,62 @@ void FluxComputer::compute_viscous_flux_block(orion::preprocess::BlockField& bf,
     int n_face_j = jdim + 1;
     std::vector<double> q_line_j((jdim+6)*9);
     
-    // Resize temp vectors
     uvwt_half.resize(4*n_face_j); duvwt_half.resize(12*n_face_j); kxyz_half.resize(9*n_face_j);
     vol_half.resize(n_face_j); vslt1_half.resize(n_face_j); vslt2_half.resize(n_face_j);
     fv.resize(5*n_face_j); dfv.resize(5*jdim); normal_vec.resize(3*n_face_j);
 
     for (int k = ng; k < nz - ng; ++k) {
         for (int i = ng; i < nx - ng; ++i) {
-            int f_l = (bf.prim(i, ng-2, k, 0) < 0) ? -1 : 0;
-            int f_r = (bf.prim(i, ng+jdim+3, k, 0) < 0) ? -1 : 0;
+            int f_l = (bf.prim(i, ng-3, k, 0) < 0) ? -1 : 0;
+            int f_r = (bf.prim(i, ng+jdim+2, k, 0) < 0) ? -1 : 0;
 
             // UVWT
             for (int j = -2; j < jdim + 3; ++j) {
                 int idx = std::max(0, std::min(ny-1, ng + j));
                 for(int m=0; m<4; ++m) {
-                    double val = (m<3) ? bf.prim(i,idx,k,m+1) : bf.prim(i,idx,k, 5);
+                    // [修正] T 在 prim(..., 5)
+                    double val = (m<3) ? bf.prim(i,idx,k,m+1) : bf.prim(i,idx,k,5);
                     q_line_j[(j+2)*4 + m] = val;
                 }
             }
             interp_line_to_half(4, jdim, q_line_j, uvwt_half, f_l, f_r);
 
-            // Viscosity & Vol
+            // Viscosity & Vol (Central)
             for (int j = -2; j < jdim + 3; ++j) q_line_j[(j+2)*1 + 0] = bf.mu(i, std::max(0, std::min(ny-1, ng+j)), k);
-            interp_line_to_half(1, jdim, q_line_j, vslt1_half, f_l, f_r);
+            interp_line_to_half(1, jdim, q_line_j, vslt1_half, 0, 0);
             for(int j=0; j<n_face_j; ++j) vslt2_half[j] = vslt1_half[j] * cp_prl;
 
             for (int j = -2; j < jdim + 3; ++j) q_line_j[(j+2)*1 + 0] = bf.vol(i, std::max(0, std::min(ny-1, ng+j)), k);
-            interp_line_to_half(1, jdim, q_line_j, vol_half, f_l, f_r);
+            interp_line_to_half(1, jdim, q_line_j, vol_half, 0, 0);
 
-            // Metrics
+            // Metrics (Central)
             for (int j = -2; j < jdim + 3; ++j) {
                 int idx = std::max(0, std::min(ny-1, ng + j));
                 for(int m=0; m<9; ++m) q_line_j[(j+2)*9 + m] = bf.metrics(i,idx,k, m);
             }
-            interp_line_to_half(9, jdim, q_line_j, kxyz_half, f_l, f_r);
+            interp_line_to_half(9, jdim, q_line_j, kxyz_half, 0, 0);
 
-            // Extract Normal (J-dir: etx, ety, etz -> 3,4,5)
+            // Extract Normal (J-dir)
             for(int j=0; j<n_face_j; ++j) {
                 normal_vec[j*3+0] = kxyz_half[j*9+3];
                 normal_vec[j*3+1] = kxyz_half[j*9+4];
                 normal_vec[j*3+2] = kxyz_half[j*9+5];
             }
 
-            // Derivatives (J-dir: 5-8 is d/deta from face)
+            // Derivatives (Central)
             std::vector<double> duvwt_cc_face(n_face_j * 8);
             for (int j = -2; j < jdim + 3; ++j) {
                 int src_idx = std::max(ng, std::min(ny-ng-1, ng+j));
-                // Get d/dxi (0-3) and d/dzeta (8-11)
                 for(int m=0; m<4; ++m) q_line_j[(j+2)*8+m] = duvwt(i, src_idx, k, m); 
                 for(int m=0; m<4; ++m) q_line_j[(j+2)*8+m+4] = duvwt(i, src_idx, k, m+8);
             }
-            interp_line_to_half(8, jdim, q_line_j, duvwt_cc_face, f_l, f_r);
+            interp_line_to_half(8, jdim, q_line_j, duvwt_cc_face, 0, 0);
 
             for(int j=0; j<n_face_j; ++j) {
                 int mid_idx = ng + j - 1;
-                // 1-4 from interp (d/dxi)
                 for(int m=0; m<4; ++m) duvwt_half[j*12 + m] = duvwt_cc_face[j*8+m];
-                // 5-8 from face (d/deta)
                 if(mid_idx>=0 && mid_idx<ny)
                     for(int m=0; m<4; ++m) duvwt_half[j*12 + m+4] = duvwt_mid(i,mid_idx,k, m+4);
-                // 9-12 from interp (d/dzeta)
                 for(int m=0; m<4; ++m) duvwt_half[j*12 + m+8] = duvwt_cc_face[j*8+m+4];
             }
 
@@ -639,61 +651,59 @@ void FluxComputer::compute_viscous_flux_block(orion::preprocess::BlockField& bf,
     int n_face_k = kdim + 1;
     std::vector<double> q_line_k((kdim+6)*9);
     
-    // Resize
     uvwt_half.resize(4*n_face_k); duvwt_half.resize(12*n_face_k); kxyz_half.resize(9*n_face_k);
     vol_half.resize(n_face_k); vslt1_half.resize(n_face_k); vslt2_half.resize(n_face_k);
     fv.resize(5*n_face_k); dfv.resize(5*kdim); normal_vec.resize(3*n_face_k);
 
     for (int j = ng; j < ny - ng; ++j) {
         for (int i = ng; i < nx - ng; ++i) {
-            int f_l = (bf.prim(i, j, ng-2, 0) < 0) ? -1 : 0;
-            int f_r = (bf.prim(i, j, ng+kdim+3, 0) < 0) ? -1 : 0;
+            int f_l = (bf.prim(i, j, ng-3, 0) < 0) ? -1 : 0;
+            int f_r = (bf.prim(i, j, ng+kdim+2, 0) < 0) ? -1 : 0;
 
             // UVWT
             for (int k = -2; k < kdim + 3; ++k) {
                 int idx = std::max(0, std::min(nz-1, ng + k));
                 for(int m=0; m<4; ++m) {
+                    // [修正] T 在 prim(..., 5)
                     double val = (m<3) ? bf.prim(i,j,idx,m+1) : bf.prim(i,j,idx,5);
                     q_line_k[(k+2)*4 + m] = val;
                 }
             }
             interp_line_to_half(4, kdim, q_line_k, uvwt_half, f_l, f_r);
 
-            // Visc/Vol
+            // Visc/Vol (Central)
             for (int k = -2; k < kdim + 3; ++k) q_line_k[(k+2)*1 + 0] = bf.mu(i, j, std::max(0, std::min(nz-1, ng+k)));
-            interp_line_to_half(1, kdim, q_line_k, vslt1_half, f_l, f_r);
+            interp_line_to_half(1, kdim, q_line_k, vslt1_half, 0, 0);
             for(int k=0; k<n_face_k; ++k) vslt2_half[k] = vslt1_half[k] * cp_prl;
 
             for (int k = -2; k < kdim + 3; ++k) q_line_k[(k+2)*1 + 0] = bf.vol(i, j, std::max(0, std::min(nz-1, ng+k)));
-            interp_line_to_half(1, kdim, q_line_k, vol_half, f_l, f_r);
+            interp_line_to_half(1, kdim, q_line_k, vol_half, 0, 0);
 
-            // Metrics
+            // Metrics (Central)
             for (int k = -2; k < kdim + 3; ++k) {
                 int idx = std::max(0, std::min(nz-1, ng + k));
                 for(int m=0; m<9; ++m) q_line_k[(k+2)*9 + m] = bf.metrics(i,j,idx, m);
             }
-            interp_line_to_half(9, kdim, q_line_k, kxyz_half, f_l, f_r);
+            interp_line_to_half(9, kdim, q_line_k, kxyz_half, 0, 0);
 
-            // Extract Normal (K-dir: ctx, cty, ctz -> 6,7,8)
+            // Extract Normal (K-dir)
             for(int k=0; k<n_face_k; ++k) {
                 normal_vec[k*3+0] = kxyz_half[k*9+6];
                 normal_vec[k*3+1] = kxyz_half[k*9+7];
                 normal_vec[k*3+2] = kxyz_half[k*9+8];
             }
 
-            // Derivatives (K-dir: 9-12 is d/dzeta from face)
+            // Derivatives (Central)
             std::vector<double> duvwt_cc_face(n_face_k * 8);
             for (int k = -2; k < kdim + 3; ++k) {
                 int src_idx = std::max(ng, std::min(nz-ng-1, ng+k));
-                for(int m=0; m<8; ++m) q_line_k[(k+2)*8+m] = duvwt(i, j, src_idx, m); // 0-7 (xi, eta)
+                for(int m=0; m<8; ++m) q_line_k[(k+2)*8+m] = duvwt(i, j, src_idx, m); 
             }
-            interp_line_to_half(8, kdim, q_line_k, duvwt_cc_face, f_l, f_r);
+            interp_line_to_half(8, kdim, q_line_k, duvwt_cc_face, 0, 0);
 
             for(int k=0; k<n_face_k; ++k) {
                 int mid_idx = ng + k - 1;
-                // 1-8 from interp
                 for(int m=0; m<8; ++m) duvwt_half[k*12 + m] = duvwt_cc_face[k*8+m];
-                // 9-12 from face
                 if(mid_idx>=0 && mid_idx<nz)
                     for(int m=0; m<4; ++m) duvwt_half[k*12 + m+8] = duvwt_mid(i,j,mid_idx, m+8);
             }
@@ -722,4 +732,4 @@ void FluxComputer::compute_viscous_rhs(orion::preprocess::FlowFieldSet& fs,
     }
 }
 
-} // namespace
+} // namespace orion::solver
