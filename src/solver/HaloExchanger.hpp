@@ -17,7 +17,7 @@ public:
      * @brief 执行幽灵网格交换 (Primitive Variables: rho, u, v, w, p)
      * 对应 Fortran: exchange_bc
      */
-    void exchange_bc(const orion::bc::BCData& bc,
+    void exchange_bc(orion::bc::BCData& bc,
                      orion::preprocess::FlowFieldSet& fs);
 
     // [新增] 交换并平均接口残差 DQ (用于粘性通量计算后的平滑)

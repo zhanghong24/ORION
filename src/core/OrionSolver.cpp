@@ -60,6 +60,14 @@ void OrionSolver::preprocess() {
     // 4. 设置边界索引
     bc::set_bc_index(bc_);
 
+    // =========================================================
+    // [NEW] 5. 计算边界拓扑映射 (复刻 Fortran analyze_bc)
+    // =========================================================
+    if (core::Runtime::is_root()) {
+        std::cout << "[OrionSolver] Preparing BC Topology (analyze_bc)...\n";
+    }
+    bc::prepare_bc_topology(bc_);
+
     // 5. 分配流场内存 (Metrics, Q, Prim等)
     // 注意：这里 nvar=5, nprim=6 可以写死，也可以做到 params 里
     fs_ = preprocess::allocate_other_variable(grid_, bc_, params_,

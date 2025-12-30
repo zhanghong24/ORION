@@ -13,6 +13,21 @@ static void get_normal(const orion::preprocess::BlockField& bf,
                        int i, int j, int k, int s_nd,
                        double& nx, double& ny, double& nz)
 {
+    // s_nd 是 1-based (1,2,3)，转为 0-based offset
+    // 注意：bf.metrics 访问时也需要加上 ng 偏移！
+    // 假设 metrics 和 prim 一样，物理点 (0,0,0) 对应内存 (ng,ng,ng)
+    // 需要外部调用者保证传入的 i,j,k 是 0-based 物理坐标
+    
+    // 获取当前 FlowField 的 ng (需要从 bf 获取，或者假设调用者处理好了)
+    // 这里的 i,j,k 是物理坐标。bf.metrics(...) 通常设计为接受物理坐标吗？
+    // 查看 MetricComputer.cpp -> metrics 是 allocated (ni+2ng)...
+    // 我们需要统一标准：这里的 helper 函数接受 "物理坐标 i,j,k"，内部加 ng。
+    
+    // 为了安全，我们需要知道 ng。但是 BlockField 结构里好像没有 ng 成员？
+    // 通常 ng 存储在 Params 或 FlowFieldSet 中。
+    // 既然外部调用者 (apply_...) 知道 ng，我们让 helper 接收实际内存索引 idx_i, idx_j, idx_k 更好。
+    // 但为了保持接口简单，我们假设传入的 i,j,k 已经是 "内存索引" (即 phys + ng)。
+    
     int offset = (s_nd - 1) * 3;
     
     double mx = bf.metrics(i, j, k, offset + 0);
@@ -32,15 +47,15 @@ static void get_normal(const orion::preprocess::BlockField& bf,
 // 辅助函数：计算面的平均法向量 (用于 Symmetry 3D)
 // ===========================================================================
 static void get_average_normal(const orion::preprocess::BlockField& bf,
-                               int i_st, int i_ed,
-                               int j_st, int j_ed,
-                               int k_st, int k_ed,
+                               int idx_i_st, int idx_i_ed,
+                               int idx_j_st, int idx_j_ed,
+                               int idx_k_st, int idx_k_ed,
                                int s_nd,
                                double& nx_avg, double& ny_avg, double& nz_avg)
 {
-    int i_mid = (i_st + i_ed) / 2;
-    int j_mid = (j_st + j_ed) / 2;
-    int k_mid = (k_st + k_ed) / 2;
+    int i_mid = (idx_i_st + idx_i_ed) / 2;
+    int j_mid = (idx_j_st + idx_j_ed) / 2;
+    int k_mid = (idx_k_st + idx_k_ed) / 2;
 
     double nx, ny, nz;
     get_normal(bf, i_mid, j_mid, k_mid, s_nd, nx, ny, nz);
@@ -52,40 +67,39 @@ static void get_average_normal(const orion::preprocess::BlockField& bf,
 
 // ===========================================================================
 // 辅助函数：dif_average (method=1 专用)
-// 作用：边界点值 = 0.5 * (Ghost_1 + Inner_1)
 // ===========================================================================
 static void apply_dif_average(orion::preprocess::BlockField& bf,
-                              int i, int j, int k,
+                              int idx_i, int idx_j, int idx_k, // 内存索引
                               int dir, int s_lr, int nprim)
 {
-    int idx_0[3] = {i, j, k}; // 边界点
-    int idx_g[3] = {i, j, k}; // Ghost Layer 1
-    int idx_i[3] = {i, j, k}; // Inner Layer 1
+    int idx_0[3] = {idx_i, idx_j, idx_k}; // Face Point
+    int idx_g[3] = {idx_i, idx_j, idx_k}; // Ghost Layer 1
+    int idx_i_inner[3] = {idx_i, idx_j, idx_k}; // Inner Layer 1
 
     if (s_lr == 1) { // Max Face
         idx_g[dir] += 1;
-        idx_i[dir] -= 1;
+        idx_i_inner[dir] -= 1;
     } else { // Min Face
         idx_g[dir] -= 1;
-        idx_i[dir] += 1;
+        idx_i_inner[dir] += 1;
     }
 
     for (int m = 0; m < nprim; ++m) {
         double val_g = bf.prim(idx_g[0], idx_g[1], idx_g[2], m);
-        double val_i = bf.prim(idx_i[0], idx_i[1], idx_i[2], m);
+        double val_i = bf.prim(idx_i_inner[0], idx_i_inner[1], idx_i_inner[2], m);
         bf.prim(idx_0[0], idx_0[1], idx_0[2], m) = 0.5 * (val_g + val_i);
     }
 }
 
 // ===========================================================================
 // 1. 对称边界 (Symmetry / boundary_3)
-// 密度不取反！
 // ===========================================================================
 static void apply_symmetry_bc(const BCRegion& reg, 
                               orion::preprocess::BlockField& bf,
                               const orion::core::Params& params,
                               int ng)
 {
+    // s_st/ed 是 1-based。转换为 0-based 物理坐标，再加 ng 转换为内存坐标。
     int i_st = reg.s_st[0] - 1 + ng;
     int i_ed = reg.s_ed[0] - 1 + ng;
     int j_st = reg.s_st[1] - 1 + ng;
@@ -93,33 +107,34 @@ static void apply_symmetry_bc(const BCRegion& reg,
     int k_st = reg.s_st[2] - 1 + ng;
     int k_ed = reg.s_ed[2] - 1 + ng;
 
-    int dir = reg.s_nd - 1;
+    int dir = reg.s_nd - 1; // 0-based direction (0=i, 1=j, 2=k)
 
-    int phys_dim = bf.prim.dims()[dir] - 2 * ng;
-    bool is_2d = (phys_dim <= 2);
+    // 判断是否为 2D 算例 (k方向维度包含ghost, 物理维度 = dim - 2*ng)
+    int phys_dim_k = bf.prim.dims()[2] - 2 * ng;
+    bool is_2d_symmetry = (dir != 2 && phys_dim_k <= 2);
 
-    if (is_2d) {
-        // --- 2D Case (展向对称) ---
+    if (is_2d_symmetry) {
         for (int k = k_st; k <= k_ed; ++k) {
             for (int j = j_st; j <= j_ed; ++j) {
                 for (int i = i_st; i <= i_ed; ++i) {
                     
-                    for (int l = 1; l <= ng; ++l) {
+                    for (int l = 0; l < ng; ++l) { // 0-based loop
+                        int dist = l + 1; // 1-based distance
                         int idx_g[3] = {i, j, k};
                         int idx_i[3] = {i, j, k};
-                        if (reg.s_lr == 1) { idx_g[dir]+=l; idx_i[dir]-=l; }
-                        else               { idx_g[dir]-=l; idx_i[dir]+=l; }
+                        
+                        if (reg.s_lr == 1) { idx_g[dir]+=dist; idx_i[dir]-=dist; }
+                        else               { idx_g[dir]-=dist; idx_i[dir]+=dist; }
 
-                        bf.prim(idx_g[0], idx_g[1], idx_g[2], 0) = bf.prim(idx_i[0], idx_i[1], idx_i[2], 0); // Rho Positive
+                        bf.prim(idx_g[0], idx_g[1], idx_g[2], 0) = bf.prim(idx_i[0], idx_i[1], idx_i[2], 0);
                         bf.prim(idx_g[0], idx_g[1], idx_g[2], 1) = bf.prim(idx_i[0], idx_i[1], idx_i[2], 1);
                         bf.prim(idx_g[0], idx_g[1], idx_g[2], 2) = bf.prim(idx_i[0], idx_i[1], idx_i[2], 2);
                         bf.prim(idx_g[0], idx_g[1], idx_g[2], 4) = bf.prim(idx_i[0], idx_i[1], idx_i[2], 4);
                         if (bf.prim.dims()[3] > 5) 
                              bf.prim(idx_g[0], idx_g[1], idx_g[2], 5) = bf.prim(idx_i[0], idx_i[1], idx_i[2], 5);
 
-                        double w_i = bf.prim(idx_i[0], idx_i[1], idx_i[2], 3);
-                        if (l == 1)      bf.prim(idx_g[0], idx_g[1], idx_g[2], 3) = -w_i;
-                        else             bf.prim(idx_g[0], idx_g[1], idx_g[2], 3) = 0.0;
+                        // W 反向 (展向)
+                        bf.prim(idx_g[0], idx_g[1], idx_g[2], 3) = -bf.prim(idx_i[0], idx_i[1], idx_i[2], 3); 
                     }
                     
                     if (params.control.method == 1) 
@@ -128,7 +143,6 @@ static void apply_symmetry_bc(const BCRegion& reg,
             }
         }
     } else {
-        // --- 3D Case (Planar Symmetry) ---
         double nx, ny, nz;
         get_average_normal(bf, i_st, i_ed, j_st, j_ed, k_st, k_ed, reg.s_nd, nx, ny, nz);
 
@@ -136,11 +150,12 @@ static void apply_symmetry_bc(const BCRegion& reg,
             for (int j = j_st; j <= j_ed; ++j) {
                 for (int i = i_st; i <= i_ed; ++i) {
                     
-                    for (int l = 1; l <= ng; ++l) {
+                    for (int l = 0; l < ng; ++l) {
+                        int dist = l + 1;
                         int idx_g[3] = {i,j,k};
                         int idx_i[3] = {i,j,k};
-                        if (reg.s_lr == 1) { idx_g[dir]+=l; idx_i[dir]-=l; }
-                        else               { idx_g[dir]-=l; idx_i[dir]+=l; }
+                        if (reg.s_lr == 1) { idx_g[dir]+=dist; idx_i[dir]-=dist; }
+                        else               { idx_g[dir]-=dist; idx_i[dir]+=dist; }
 
                         double rho = bf.prim(idx_i[0], idx_i[1], idx_i[2], 0);
                         double u   = bf.prim(idx_i[0], idx_i[1], idx_i[2], 1);
@@ -150,9 +165,7 @@ static void apply_symmetry_bc(const BCRegion& reg,
 
                         double v_dot_n = u*nx + v*ny + w*nz;
 
-                        // [修正] 对称边界密度保持正值
                         bf.prim(idx_g[0], idx_g[1], idx_g[2], 0) = rho;
-                        
                         bf.prim(idx_g[0], idx_g[1], idx_g[2], 1) = u - 2.0 * v_dot_n * nx;
                         bf.prim(idx_g[0], idx_g[1], idx_g[2], 2) = v - 2.0 * v_dot_n * ny;
                         bf.prim(idx_g[0], idx_g[1], idx_g[2], 3) = w - 2.0 * v_dot_n * nz;
@@ -171,7 +184,9 @@ static void apply_symmetry_bc(const BCRegion& reg,
 
 // ===========================================================================
 // 2. 无粘壁面 (Inviscid Wall)
-// 密度在最外层取反
+// 100% 复刻 Fortran: 
+// - Layer 1, 2: 正向
+// - Layer 3: 密度取反
 // ===========================================================================
 static void apply_inviscid_wall(const BCRegion& reg, 
                                 orion::preprocess::BlockField& bf,
@@ -191,34 +206,38 @@ static void apply_inviscid_wall(const BCRegion& reg,
         for (int j = j_st; j <= j_ed; ++j) {
             for (int i = i_st; i <= i_ed; ++i) {
                 
+                // 注意：get_normal 内部接收的是内存坐标 (i,j,k)
                 double nx, ny, nz;
                 get_normal(bf, i, j, k, reg.s_nd, nx, ny, nz);
 
-                for (int l = 1; l <= ng; ++l) {
+                for (int l = 0; l < ng; ++l) { 
+                    int dist = l + 1; // 1-based 距离
                     int idx_g[3] = {i, j, k};
                     int idx_i[3] = {i, j, k};
 
-                    if (reg.s_lr == 1) { idx_g[dir]+=l; idx_i[dir]-=l; }
-                    else               { idx_g[dir]-=l; idx_i[dir]+=l; }
+                    if (reg.s_lr == 1) { idx_g[dir]+=dist; idx_i[dir]-=dist; }
+                    else               { idx_g[dir]-=dist; idx_i[dir]+=dist; }
 
-                    double rho = bf.prim(idx_i[0], idx_i[1], idx_i[2], 0);
-                    double u   = bf.prim(idx_i[0], idx_i[1], idx_i[2], 1);
-                    double v   = bf.prim(idx_i[0], idx_i[1], idx_i[2], 2);
-                    double w   = bf.prim(idx_i[0], idx_i[1], idx_i[2], 3);
-                    double p   = bf.prim(idx_i[0], idx_i[1], idx_i[2], 4);
-                    double t   = (bf.prim.dims()[3] > 5) ? bf.prim(idx_i[0], idx_i[1], idx_i[2], 5) : 0.0;
+                    double rho_i = bf.prim(idx_i[0], idx_i[1], idx_i[2], 0);
+                    double u_i   = bf.prim(idx_i[0], idx_i[1], idx_i[2], 1);
+                    double v_i   = bf.prim(idx_i[0], idx_i[1], idx_i[2], 2);
+                    double w_i   = bf.prim(idx_i[0], idx_i[1], idx_i[2], 3);
+                    double p_i   = bf.prim(idx_i[0], idx_i[1], idx_i[2], 4);
+                    double t_i   = (bf.prim.dims()[3] > 5) ? bf.prim(idx_i[0], idx_i[1], idx_i[2], 5) : 0.0;
 
-                    double v_dot_n = u*nx + v*ny + w*nz;
+                    double v_dot_n = u_i*nx + v_i*ny + w_i*nz;
                     
-                    // [TGH] 无粘壁面: 最外层密度取反
-                    if (l == ng) bf.prim(idx_g[0], idx_g[1], idx_g[2], 0) = -rho;
-                    else         bf.prim(idx_g[0], idx_g[1], idx_g[2], 0) = rho;
+                    // [100% 复刻] 第3层密度取反 (参见 BC.f90 line 95)
+                    // 如果 ng < 3，这个分支不会触发，程序安全
+                    if (dist == 3) bf.prim(idx_g[0], idx_g[1], idx_g[2], 0) = -rho_i;
+                    else           bf.prim(idx_g[0], idx_g[1], idx_g[2], 0) = rho_i;
                     
-                    bf.prim(idx_g[0], idx_g[1], idx_g[2], 1) = u - 2.0 * v_dot_n * nx;
-                    bf.prim(idx_g[0], idx_g[1], idx_g[2], 2) = v - 2.0 * v_dot_n * ny;
-                    bf.prim(idx_g[0], idx_g[1], idx_g[2], 3) = w - 2.0 * v_dot_n * nz;
-                    bf.prim(idx_g[0], idx_g[1], idx_g[2], 4) = p;
-                    if (bf.prim.dims()[3] > 5) bf.prim(idx_g[0], idx_g[1], idx_g[2], 5) = t;
+                    bf.prim(idx_g[0], idx_g[1], idx_g[2], 1) = u_i - 2.0 * v_dot_n * nx;
+                    bf.prim(idx_g[0], idx_g[1], idx_g[2], 2) = v_i - 2.0 * v_dot_n * ny;
+                    bf.prim(idx_g[0], idx_g[1], idx_g[2], 3) = w_i - 2.0 * v_dot_n * nz;
+                    bf.prim(idx_g[0], idx_g[1], idx_g[2], 4) = p_i;
+                    
+                    if (bf.prim.dims()[3] > 5) bf.prim(idx_g[0], idx_g[1], idx_g[2], 5) = t_i;
                 }
 
                 if (params.control.method == 1) 
@@ -230,7 +249,7 @@ static void apply_inviscid_wall(const BCRegion& reg,
 
 // ===========================================================================
 // 3. 粘性壁面 (Viscous Wall)
-// 密度在最外层取反
+// 100% 复刻 Fortran: 第3层密度取反 + 2阶插值
 // ===========================================================================
 static void apply_viscid_wall(const BCRegion& reg, 
                               orion::preprocess::BlockField& bf,
@@ -252,6 +271,7 @@ static void apply_viscid_wall(const BCRegion& reg,
     double twall = F.twall; 
     double tref  = F.tref;
     double moocp = mach * mach * gama;
+    const double pmin_limit = 1.0e-6; 
     
     bool isothermal = (twall > 1.0e-6);
     double twall_dim = (isothermal && std::abs(tref)>1e-16) ? twall/tref : twall;
@@ -260,42 +280,84 @@ static void apply_viscid_wall(const BCRegion& reg,
         for (int j = j_st; j <= j_ed; ++j) {
             for (int i = i_st; i <= i_ed; ++i) {
                 
-                for (int l = 1; l <= ng; ++l) {
+                // 1. 计算壁面 (Layer 0) 物理值 - 2阶插值
+                int idx_1[3] = {i, j, k}; // Inner 1 (dist=1)
+                int idx_2[3] = {i, j, k}; // Inner 2 (dist=2)
+                
+                if (reg.s_lr == 1) { 
+                    idx_1[dir] -= 1; idx_2[dir] -= 2; 
+                } else { 
+                    idx_1[dir] += 1; idx_2[dir] += 2; 
+                }
+
+                double p1 = bf.prim(idx_1[0], idx_1[1], idx_1[2], 4);
+                double p2 = bf.prim(idx_2[0], idx_2[1], idx_2[2], 4);
+                double p_wall = (4.0 * p1 - p2) / 3.0;
+                if (p_wall < pmin_limit) p_wall = p1; 
+
+                double t_wall;
+                if (isothermal) {
+                    t_wall = twall_dim;
+                } else {
+                    double t1 = bf.prim(idx_1[0], idx_1[1], idx_1[2], 5);
+                    double t2 = bf.prim(idx_2[0], idx_2[1], idx_2[2], 5);
+                    t_wall = (4.0 * t1 - t2) / 3.0;
+                    if (t_wall < 1e-6) t_wall = t1;
+                }
+
+                double rho_wall = moocp * p_wall / t_wall;
+
+                // 2. 填充 Ghost Layers (Layer 1..ng)
+                for (int l = 0; l < ng; ++l) {
+                    int dist = l + 1;
                     int idx_g[3] = {i, j, k};
                     int idx_i[3] = {i, j, k};
-                    if (reg.s_lr == 1) { idx_g[dir]+=l; idx_i[dir]-=l; }
-                    else               { idx_g[dir]-=l; idx_i[dir]+=l; }
+                    if (reg.s_lr == 1) { idx_g[dir]+=dist; idx_i[dir]-=dist; }
+                    else               { idx_g[dir]-=dist; idx_i[dir]+=dist; }
 
                     double u_i = bf.prim(idx_i[0], idx_i[1], idx_i[2], 1);
                     double v_i = bf.prim(idx_i[0], idx_i[1], idx_i[2], 2);
                     double w_i = bf.prim(idx_i[0], idx_i[1], idx_i[2], 3);
-                    double p_i = bf.prim(idx_i[0], idx_i[1], idx_i[2], 4);
-                    double t_i = bf.prim(idx_i[0], idx_i[1], idx_i[2], 5);
 
+                    // No-slip condition
                     bf.prim(idx_g[0], idx_g[1], idx_g[2], 1) = -u_i;
                     bf.prim(idx_g[0], idx_g[1], idx_g[2], 2) = -v_i;
                     bf.prim(idx_g[0], idx_g[1], idx_g[2], 3) = -w_i;
 
-                    double p_g = p_i;
-                    bf.prim(idx_g[0], idx_g[1], idx_g[2], 4) = p_g;
+                    // P: 零梯度近似 (Fortran line 68)
+                    bf.prim(idx_g[0], idx_g[1], idx_g[2], 4) = bf.prim(idx_i[0], idx_i[1], idx_i[2], 4);
+                    
+                    if (isothermal) {
+                        double t_inner = bf.prim(idx_i[0], idx_i[1], idx_i[2], 5);
+                        bf.prim(idx_g[0], idx_g[1], idx_g[2], 5) = 2.0*t_wall - t_inner;
+                    } else {
+                        bf.prim(idx_g[0], idx_g[1], idx_g[2], 5) = bf.prim(idx_i[0], idx_i[1], idx_i[2], 5);
+                    }
 
-                    double t_g = isothermal ? (2.0 * twall_dim - t_i) : t_i;
-                    if (t_g < 1e-6) t_g = t_i;
-                    if (bf.prim.dims()[3] > 5) bf.prim(idx_g[0], idx_g[1], idx_g[2], 5) = t_g;
+                    double pg = bf.prim(idx_g[0], idx_g[1], idx_g[2], 4);
+                    double tg = (bf.prim.dims()[3] > 5) ? bf.prim(idx_g[0], idx_g[1], idx_g[2], 5) : 1.0;
+                    if (tg < 1e-6) tg = 1.0;
+                    
+                    double rho_calc = moocp * pg / tg;
 
-                    double rho_g = moocp * p_g / t_g;
-
-                    // [TGH] 粘性壁面: 最外层密度取反
-                    if (l == ng) bf.prim(idx_g[0], idx_g[1], idx_g[2], 0) = -rho_g;
-                    else         bf.prim(idx_g[0], idx_g[1], idx_g[2], 0) = rho_g;
+                    // [100% 复刻] 第3层密度取反 (BC.f90 line 74)
+                    if (dist == 3) bf.prim(idx_g[0], idx_g[1], idx_g[2], 0) = -rho_calc;
+                    else           bf.prim(idx_g[0], idx_g[1], idx_g[2], 0) = rho_calc;
                 }
 
+                // 3. 强制更新 Boundary Point (Layer 0) (Fortran line 70-71)
+                // 这一点很重要，因为粘性通量计算需要壁面上的准确值
                 int idx_0[3] = {i,j,k};
-                bf.prim(idx_0[0],idx_0[1],idx_0[2], 1) = 0.0;
-                bf.prim(idx_0[0],idx_0[1],idx_0[2], 2) = 0.0;
-                bf.prim(idx_0[0],idx_0[1],idx_0[2], 3) = 0.0;
+                bf.prim(idx_0[0], idx_0[1], idx_0[2], 0) = rho_wall;
+                bf.prim(idx_0[0], idx_0[1], idx_0[2], 1) = 0.0;
+                bf.prim(idx_0[0], idx_0[1], idx_0[2], 2) = 0.0;
+                bf.prim(idx_0[0], idx_0[1], idx_0[2], 3) = 0.0;
+                bf.prim(idx_0[0], idx_0[1], idx_0[2], 4) = p_wall;
+                if (bf.prim.dims()[3] > 5) 
+                    bf.prim(idx_0[0], idx_0[1], idx_0[2], 5) = t_wall;
                 
-                apply_dif_average(bf, i, j, k, dir, reg.s_lr, 6); 
+                if (params.control.method == 1) 
+                    apply_dif_average(bf, i, j, k, dir, reg.s_lr, 6); 
             }
         }
     }
@@ -303,7 +365,7 @@ static void apply_viscid_wall(const BCRegion& reg,
 
 // ===========================================================================
 // 4. 远场 (Farfield / boundary_4)
-// 密度在最外层取反
+// 100% 复刻 Fortran: 第3层密度取反
 // ===========================================================================
 static void apply_farfield_bc(const BCRegion& reg, 
                               orion::preprocess::BlockField& bf,
@@ -389,14 +451,15 @@ static void apply_farfield_bc(const BCRegion& reg,
                 
                 double t_b = (mach*mach*gama) * p_b / rho_b; 
 
-                for (int l = 1; l <= ng; ++l) {
+                for (int l = 0; l < ng; ++l) {
+                    int dist = l + 1;
                     int idx_g[3] = {i, j, k};
-                    if (reg.s_lr == 1) idx_g[dir] += l;
-                    else               idx_g[dir] -= l;
+                    if (reg.s_lr == 1) idx_g[dir] += dist;
+                    else               idx_g[dir] -= dist;
 
-                    // [TGH] 远场: 最外层密度取反 (参见 boundary_4 代码)
-                    if (l == ng) bf.prim(idx_g[0], idx_g[1], idx_g[2], 0) = -rho_b;
-                    else         bf.prim(idx_g[0], idx_g[1], idx_g[2], 0) = rho_b;
+                    // [100% 复刻] 第3层密度取反 (BC.f90 line 47)
+                    if (dist == 3) bf.prim(idx_g[0], idx_g[1], idx_g[2], 0) = -rho_b;
+                    else           bf.prim(idx_g[0], idx_g[1], idx_g[2], 0) = rho_b;
                     
                     bf.prim(idx_g[0], idx_g[1], idx_g[2], 1) = u_b;
                     bf.prim(idx_g[0], idx_g[1], idx_g[2], 2) = v_b;
@@ -434,17 +497,17 @@ static void apply_freestream_bc(const BCRegion& reg,
     double p_inf   = F.poo;
     double t_inf   = F.too; 
 
-    // boundary_5: 从 boundary point (Layer 0) 到 Ghost End
-    int start_layer = (params.control.method == 1) ? 0 : 1;
-
+    // boundary_5: Fortran 逻辑也覆盖了 Ghost Layers
+    // 假设简单填满
     for (int k = k_st; k <= k_ed; ++k) {
         for (int j = j_st; j <= j_ed; ++j) {
             for (int i = i_st; i <= i_ed; ++i) {
                 
-                for (int l = start_layer; l <= ng; ++l) {
+                for (int l = 0; l < ng; ++l) {
+                    int dist = l + 1;
                     int idx_g[3] = {i, j, k};
-                    if (reg.s_lr == 1) idx_g[dir] += l;
-                    else               idx_g[dir] -= l;
+                    if (reg.s_lr == 1) idx_g[dir] += dist;
+                    else               idx_g[dir] -= dist;
 
                     bf.prim(idx_g[0], idx_g[1], idx_g[2], 0) = rho_inf;
                     bf.prim(idx_g[0], idx_g[1], idx_g[2], 1) = u_inf;
@@ -490,12 +553,11 @@ static void apply_extrapolation_bc(const BCRegion& reg,
                 double p   = bf.prim(idx_src[0], idx_src[1], idx_src[2], 4);
                 double t   = (bf.prim.dims()[3] > 5) ? bf.prim(idx_src[0], idx_src[1], idx_src[2], 5) : 0.0;
 
-                int start_layer = (params.control.method == 1) ? 0 : 1;
-
-                for (int l = start_layer; l <= ng; ++l) {
+                for (int l = 0; l < ng; ++l) {
+                    int dist = l + 1;
                     int idx_g[3] = {i, j, k};
-                    if (reg.s_lr == 1) idx_g[dir] += l;
-                    else               idx_g[dir] -= l;
+                    if (reg.s_lr == 1) idx_g[dir] += dist;
+                    else               idx_g[dir] -= dist;
 
                     bf.prim(idx_g[0], idx_g[1], idx_g[2], 0) = rho;
                     bf.prim(idx_g[0], idx_g[1], idx_g[2], 1) = u;

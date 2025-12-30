@@ -7,4 +7,8 @@ namespace orion::bc {
 /// bcindexs stores 1-based region indices ordered by (-1,4,5,6,2,3).
 void set_bc_index(BCData& bc);
 
+/// NEW: Calculate topology mappings (image/jmage/kmage) for connected BCs.
+/// Replicates Fortran 'analyze_bc' and 'analyze_bc_connect'.
+void prepare_bc_topology(BCData& bc);
+
 } // namespace orion::bc
