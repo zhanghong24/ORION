@@ -9,24 +9,19 @@
 namespace orion::solver {
 
 // ===========================================================================
-// PART 1: Auxiliary Variables Update (Recast Field)
+// PART 1: Auxiliary Variables Update
 // ===========================================================================
 
 static void update_thermodynamics_block(orion::preprocess::BlockField& bf, 
                                         double gamma, double moo, int nvis, int ng)
 {
     const auto& dims = bf.prim.dims();
-    int i_alloc = dims[0];
-    int j_alloc = dims[1];
-    int k_alloc = dims[2];
-
-    int idim = i_alloc - 2 * ng;
-    int jdim = j_alloc - 2 * ng;
-    int kdim = k_alloc - 2 * ng;
+    int idim = dims[0] - 2 * ng;
+    int jdim = dims[1] - 2 * ng;
+    int kdim = dims[2] - 2 * ng;
 
     double moo2 = moo * moo;
 
-    // 1. 更新内部区域 (Inner)
     int i_s = ng, i_e = ng + idim - 1;
     int j_s = ng, j_e = ng + jdim - 1;
     int k_s = ng, k_e = ng + kdim - 1;
@@ -40,15 +35,12 @@ static void update_thermodynamics_block(orion::preprocess::BlockField& bf,
                 double a2 = gamma * p / rho;
                 bf.c(i, j, k) = std::sqrt(std::abs(a2));
                 
-                // [修正] T 存储在 prim(..., 5)
                 if (nvis == 1) bf.prim(i, j, k, 5) = moo2 * a2;
             }
         }
     }
 
-    // 2. 更新 Ghost 区域 (处理可能的负密度)
-    int layers_to_update = ng; // 覆盖所有 Ghost 以策安全
-
+    int layers_to_update = ng;
     for (int dir = 0; dir < 3; ++dir) {
         for (int l = 1; l <= layers_to_update; ++l) {
             int idx_min = ng - l;
@@ -56,26 +48,21 @@ static void update_thermodynamics_block(orion::preprocess::BlockField& bf,
             
             int faces[2] = {idx_min, idx_max};
             for (int f_idx : faces) {
-                int k_start = (dir==2) ? f_idx : k_s;
-                int k_stop  = (dir==2) ? f_idx : k_e;
-                int j_start = (dir==1) ? f_idx : j_s;
-                int j_stop  = (dir==1) ? f_idx : j_e;
-                int i_start = (dir==0) ? f_idx : i_s;
-                int i_stop  = (dir==0) ? f_idx : i_e;
+                int k_st = (dir==2) ? f_idx : k_s; int k_ed = (dir==2) ? f_idx : k_e;
+                int j_st = (dir==1) ? f_idx : j_s; int j_ed = (dir==1) ? f_idx : j_e;
+                int i_st = (dir==0) ? f_idx : i_s; int i_ed = (dir==0) ? f_idx : i_e;
 
-                for (int k = k_start; k <= k_stop; ++k) {
-                    for (int j = j_start; j <= j_stop; ++j) {
-                        for (int i = i_start; i <= i_stop; ++i) {
+                for (int k = k_st; k <= k_ed; ++k) {
+                    for (int j = j_st; j <= j_ed; ++j) {
+                        for (int i = i_st; i <= i_ed; ++i) {
                             double rho = bf.prim(i, j, k, 0);
                             double p   = bf.prim(i, j, k, 4);
                             
-                            // Ghost 区域取绝对值密度，防止 sqrt 崩溃
-                            rho = std::abs(rho);
+                            rho = std::abs(rho); // Ghost protection
                             
                             double a2 = gamma * p / rho;
                             bf.c(i, j, k) = std::sqrt(std::abs(a2));
                             
-                            // [修正] T 存储在 prim(..., 5)
                             if (nvis == 1) bf.prim(i, j, k, 5) = moo2 * a2;
                         }
                     }
@@ -89,11 +76,6 @@ static void update_viscosity_block(orion::preprocess::BlockField& bf,
                                    double visc, int method, int ng)
 {
     const auto& dims = bf.prim.dims();
-    
-    // [策略说明] 
-    // 虽然 Fortran compute_visl_ns 循环看起来从 1 开始，
-    // 但 newvis.f90 的 Flux 计算使用了 i=0 的粘性。
-    // 为防止边界通量错误，C++ 这里计算全场（包括 Ghost）。
     int i_s = 0, i_e = dims[0] - 1;
     int j_s = 0, j_e = dims[1] - 1;
     int k_s = 0, k_e = dims[2] - 1;
@@ -101,10 +83,8 @@ static void update_viscosity_block(orion::preprocess::BlockField& bf,
     for (int k = k_s; k <= k_e; ++k) {
         for (int j = j_s; j <= j_e; ++j) {
             for (int i = i_s; i <= i_e; ++i) {
-                // [修正] T 从 prim(..., 5) 读取
                 double tm = bf.prim(i, j, k, 5); 
-                
-                if (tm < 1e-6) tm = 1e-6; // 保护防止除零
+                if (tm < 1e-6) tm = 1e-6; 
                 bf.mu(i, j, k) = tm * std::sqrt(tm) * (1.0 + visc) / (tm + visc);
             }
         }
@@ -132,7 +112,6 @@ static void update_conservative_block(orion::preprocess::BlockField& bf,
         double w   = bf.prim(i, j, k, 3);
         double p   = bf.prim(i, j, k, 4);
 
-        // [复刻 Fortran] Ghost 区域强制使用正密度计算 Q
         double rho_calc = (use_abs_rho || rho < 0.0) ? std::abs(rho) : rho;
 
         bf.q(i, j, k, 0) = rho_calc; 
@@ -144,15 +123,12 @@ static void update_conservative_block(orion::preprocess::BlockField& bf,
         bf.q(i, j, k, 4) = p * gm1_inv + ke;
     };
 
-    // 1. 更新内部区域
     for (int k = k_s; k <= k_e; ++k) 
         for (int j = j_s; j <= j_e; ++j) 
             for (int i = i_s; i <= i_e; ++i) 
                 calc_q(i, j, k, false);
 
-    // 2. 更新所有 Ghost 区域
     int layers_to_update = ng; 
-    
     for (int dir = 0; dir < 3; ++dir) {
         for (int l = 1; l <= layers_to_update; ++l) {
             int idx_min = ng - l;
@@ -184,19 +160,9 @@ void StateUpdater::update_flow_states(orion::preprocess::FlowFieldSet& fs,
 
     for (int nb : fs.local_block_ids) {
         auto& bf = fs.blocks[nb];
-        
-        // 1. 更新热力学变量 (c, T)
         update_thermodynamics_block(bf, gamma, moo, nvis, ng);
-        
-        // 2. 更新粘性系数 (mu)
-        if (nvis == 1) {
-            update_viscosity_block(bf, visc, method, ng);
-        }
-        
-        // 3. 更新守恒变量 (Q)
+        if (nvis == 1) update_viscosity_block(bf, visc, method, ng);
         update_conservative_block(bf, gamma, ng);
-        
-        // 4. 清零残差 (DQ)
         bf.dq.fill(0.0);
     }
 }
@@ -213,7 +179,6 @@ static double calc_spectral_radius(const double* prim, double gamma,
     double u = prim[1], v = prim[2], w = prim[3];
     double p = prim[4];
     
-    // 保护
     if (rho < 1e-30) rho = 1e-30;
     if (p < 1e-30) p = 1e-30;
 
@@ -225,11 +190,20 @@ static double calc_spectral_radius(const double* prim, double gamma,
     return std::abs(U) + c * grad_mag;
 }
 
-static double calc_visc_spectral_radius(const double* prim, double mu, double kx, double ky, double kz) {
+// 辅助：粘性谱半径 (带 reynolds 和 vol)
+static double calc_visc_spectral_radius(const double* prim, double mu, double vol, 
+                                        double reynolds, 
+                                        double kx, double ky, double kz) 
+{
     double rho = prim[0];
     if (rho < 1e-30) rho = 1e-30;
     double grad2 = kx*kx + ky*ky + kz*kz;
-    return (mu / rho) * grad2; 
+    
+    double small = 1.0e-30;
+    double rm_vol = rho * vol;
+    double coef = 2.0 * mu / (std::abs(reynolds) * rm_vol + small);
+    
+    return coef * grad2; 
 }
 
 static void compute_flux_splitting(const double* prim, 
@@ -258,7 +232,6 @@ static void compute_flux_splitting(const double* prim,
     double sml = 1.0e-30;
     if (grad_mag < sml) grad_mag = sml;
     
-    // Splitting
     double l1 = ct;
     double l4 = ct + cm * grad_mag;
     double l5 = ct - cm * grad_mag;
@@ -293,9 +266,8 @@ static void compute_flux_splitting(const double* prim,
 
 static double get_diag_coeff(int i, int j, int k, 
                              orion::preprocess::BlockField& bf,
-                             double gamma,
-                             double dt_local,
-                             int nvis)
+                             double gamma, double dt_local, int nvis,
+                             double reynolds)
 {
     double prim[5];
     for(int m=0; m<5; ++m) prim[m] = bf.prim(i,j,k,m);
@@ -307,13 +279,15 @@ static double get_diag_coeff(int i, int j, int k,
     double rva=0, rvb=0, rvc=0;
     if (nvis == 1) {
         double mu = bf.mu(i,j,k);
-        rva = calc_visc_spectral_radius(prim, mu, bf.metrics(i,j,k,0), bf.metrics(i,j,k,1), bf.metrics(i,j,k,2));
-        rvb = calc_visc_spectral_radius(prim, mu, bf.metrics(i,j,k,3), bf.metrics(i,j,k,4), bf.metrics(i,j,k,5));
-        rvc = calc_visc_spectral_radius(prim, mu, bf.metrics(i,j,k,6), bf.metrics(i,j,k,7), bf.metrics(i,j,k,8));
+        double vol = bf.vol(i,j,k);
+        if (vol < 1e-30) vol = 1e-30;
+        
+        rva = calc_visc_spectral_radius(prim, mu, vol, reynolds, bf.metrics(i,j,k,0), bf.metrics(i,j,k,1), bf.metrics(i,j,k,2));
+        rvb = calc_visc_spectral_radius(prim, mu, vol, reynolds, bf.metrics(i,j,k,3), bf.metrics(i,j,k,4), bf.metrics(i,j,k,5));
+        rvc = calc_visc_spectral_radius(prim, mu, vol, reynolds, bf.metrics(i,j,k,6), bf.metrics(i,j,k,7), bf.metrics(i,j,k,8));
     }
     
     double rad_sum = ra + rb + rc + rva + rvb + rvc;
-    
     double beta = 1.0; 
     double wmig = 1.0;
     double term = (1.0/dt_local) + beta * wmig * rad_sum;
@@ -323,6 +297,7 @@ static double get_diag_coeff(int i, int j, int k,
 static void lusgs_sweep(orion::preprocess::BlockField& bf,
                         const std::vector<double>& rhs_vec,
                         double gamma, int nvis, int ng,
+                        double reynolds,
                         int dir) 
 {
     int nx = bf.dq.dims()[0];
@@ -338,7 +313,6 @@ static void lusgs_sweep(orion::preprocess::BlockField& bf,
     int ked = (dir == 1) ? nz - ng : ng - 1;
 
     std::vector<double> prim_nb(nl), dq_nb(nl), flux_split(nl), rhs0(nl);
-    
     auto loop_cond = [dir](int c, int e) { return (dir==1) ? (c < e) : (c > e); };
 
     for (int k = kst; loop_cond(k, ked); k += dir) {
@@ -346,15 +320,29 @@ static void lusgs_sweep(orion::preprocess::BlockField& bf,
             for (int i = ist; loop_cond(i, ied); i += dir) {
                 
                 double dt = bf.dt(i,j,k);
-                double coed = get_diag_coeff(i,j,k, bf, gamma, dt, nvis);
-                
+                double coed = get_diag_coeff(i,j,k, bf, gamma, dt, nvis, reynolds);
                 std::fill(rhs0.begin(), rhs0.end(), 0.0);
 
                 auto add_nb = [&](int in, int jn, int kn, int m_idx) {
+                    if (in < ng || in >= nx-ng || jn < ng || jn >= ny-ng || kn < ng || kn >= nz-ng) return; 
+                    
                     for(int m=0; m<nl; ++m) { prim_nb[m]=bf.prim(in,jn,kn,m); dq_nb[m]=bf.dq(in,jn,kn,m); }
                     double metric[4] = {bf.metrics(i,j,k,m_idx), bf.metrics(i,j,k,m_idx+1), bf.metrics(i,j,k,m_idx+2), 0.0};
                     double r = calc_spectral_radius(prim_nb.data(), gamma, metric[0], metric[1], metric[2], 0);
                     compute_flux_splitting(prim_nb.data(), dq_nb.data(), metric, r, dir, gamma, flux_split.data());
+                    
+                    // [修正] 累加粘性非对角项 (Forward/Backward always add positive dissipation contribution)
+                    if (nvis == 1) {
+                        double mu_nb = bf.mu(in,jn,kn);
+                        double vol_nb = bf.vol(in,jn,kn); if(vol_nb<1e-30) vol_nb=1e-30;
+                        double r_visc = calc_visc_spectral_radius(prim_nb.data(), mu_nb, vol_nb, reynolds, 
+                                                                  metric[0], metric[1], metric[2]);
+                        
+                        for(int m=0; m<nl; ++m) {
+                            flux_split[m] += 0.5 * r_visc * dq_nb[m]; // Always positive addition
+                        }
+                    }
+
                     for(int m=0; m<nl; ++m) rhs0[m] += flux_split[m];
                 };
 
@@ -365,9 +353,15 @@ static void lusgs_sweep(orion::preprocess::BlockField& bf,
                 long long idx = ((long long)k * ny + j) * nx + i;
                 double wmig = 1.0;
                 
-                for(int m=0; m<nl; ++m) {
-                    double explicit_term = -rhs_vec[idx*nl + m]; 
-                    bf.dq(i,j,k,m) = (explicit_term + wmig * rhs0[m]) * coed;
+                if (dir == 1) {
+                    for(int m=0; m<nl; ++m) {
+                        double explicit_term = -rhs_vec[idx*nl + m]; 
+                        bf.dq(i,j,k,m) = (explicit_term + wmig * rhs0[m]) * coed; 
+                    }
+                } else {
+                    for(int m=0; m<nl; ++m) {
+                        bf.dq(i,j,k,m) = bf.dq(i,j,k,m) - (wmig * rhs0[m]) * coed;
+                    }
                 }
             }
         }
@@ -377,6 +371,7 @@ static void lusgs_sweep(orion::preprocess::BlockField& bf,
 static void gs_pr_sweep(orion::preprocess::BlockField& bf,
                         const std::vector<double>& rhs_vec,
                         double gamma, int nvis, int ng,
+                        double reynolds,
                         int dir)
 {
     int nx = bf.dq.dims()[0];
@@ -399,32 +394,49 @@ static void gs_pr_sweep(orion::preprocess::BlockField& bf,
             for (int i = ist; loop_cond(i, ied); i += dir) {
                 
                 double dt = bf.dt(i,j,k);
-                double coed = get_diag_coeff(i,j,k, bf, gamma, dt, nvis);
+                double coed = get_diag_coeff(i,j,k, bf, gamma, dt, nvis, reynolds);
                 std::fill(rhs0.begin(), rhs0.end(), 0.0);
 
+                // 累加所有6个邻居的贡献
                 auto add_nb_contrib = [&](int in, int jn, int kn, int m_idx, int sgn) {
+                    if (in < ng || in >= nx-ng || jn < ng || jn >= ny-ng || kn < ng || kn >= nz-ng) return; 
+
                     for(int m=0; m<nl; ++m) { prim_nb[m]=bf.prim(in,jn,kn,m); dq_nb[m]=bf.dq(in,jn,kn,m); }
                     double metric[4] = {bf.metrics(i,j,k,m_idx), bf.metrics(i,j,k,m_idx+1), bf.metrics(i,j,k,m_idx+2), 0.0};
                     double r = calc_spectral_radius(prim_nb.data(), gamma, metric[0], metric[1], metric[2], 0);
                     compute_flux_splitting(prim_nb.data(), dq_nb.data(), metric, r, sgn, gamma, flux_split.data());
-                    if(sgn==1) { for(int m=0; m<nl; ++m) rhs0[m] += flux_split[m]; }
-                    else       { for(int m=0; m<nl; ++m) rhs0[m] -= flux_split[m]; }
+                    
+                    // [修正] 累加粘性非对角项
+                    if (nvis == 1) {
+                        double mu_nb = bf.mu(in,jn,kn);
+                        double vol_nb = bf.vol(in,jn,kn); if(vol_nb<1e-30) vol_nb=1e-30;
+                        double r_visc = calc_visc_spectral_radius(prim_nb.data(), mu_nb, vol_nb, reynolds, 
+                                                                  metric[0], metric[1], metric[2]);
+                        
+                        // GS Formula: rhs0 = L_contrib - U_contrib
+                        // Left/Lower (sgn=1): += 0.5 * r * dq
+                        // Right/Upper (sgn=-1): -= 0.5 * r * dq
+                        for(int m=0; m<nl; ++m) {
+                            flux_split[m] += 0.5 * r_visc * dq_nb[m] * (double)sgn;
+                        }
+                    }
+
+                    if(sgn==1) { for(int m=0; m<nl; ++m) rhs0[m] += flux_split[m]; } 
+                    else       { for(int m=0; m<nl; ++m) rhs0[m] -= flux_split[m]; } 
                 };
 
-                // Left Neighbors (A+)
-                add_nb_contrib(i-1, j, k, 0, 1);
+                add_nb_contrib(i-1, j, k, 0, 1);  
                 add_nb_contrib(i, j-1, k, 3, 1);
                 add_nb_contrib(i, j, k-1, 6, 1);
 
-                // Right Neighbors (A-)
-                add_nb_contrib(i+1, j, k, 0, -1);
+                add_nb_contrib(i+1, j, k, 0, -1); 
                 add_nb_contrib(i, j+1, k, 3, -1);
                 add_nb_contrib(i, j, k+1, 6, -1);
 
                 long long idx = ((long long)k * ny + j) * nx + i;
                 double wmig = 1.0;
                 for(int m=0; m<nl; ++m) {
-                    double resid = -rhs_vec[idx*nl+m];
+                    double resid = -rhs_vec[idx*nl+m]; 
                     bf.dq(i,j,k,m) = (wmig * rhs0[m] + resid) * coed;
                 }
             }
@@ -536,20 +548,18 @@ void StateUpdater::update_solution(orion::preprocess::FlowFieldSet& fs,
     int ng = fs.ng;
     double gamma = params.inflow.gama;
     int nvis = params.flowtype.nvis;
+    double reynolds = params.inflow.reynolds; // Get reynolds from params
 
     for (int nb : fs.local_block_ids) {
         auto& bf = fs.blocks[nb];
-        const auto& bcb = bc.block_bc[nb]; // Use passed 'bc'
+        const auto& bcb = bc.block_bc[nb]; 
 
-        // 1. Pre-process Boundary DQ
         set_boundary_dq_zero(bf, bcb, ng);
 
-        // 2. Perform LU-SGS
         const auto& dims = bf.dq.dims();
         long long total_size = dims[0] * dims[1] * dims[2] * 5;
         std::vector<double> rhs_vec(total_size);
         
-        // Manual copy: bf.dq -> rhs_vec
         int nx=dims[0], ny=dims[1], nz=dims[2], nl=5;
         for(int k=0; k<nz; ++k)
             for(int j=0; j<ny; ++j)
@@ -559,15 +569,12 @@ void StateUpdater::update_solution(orion::preprocess::FlowFieldSet& fs,
                         rhs_vec[idx*nl+m] = bf.dq(i,j,k,m);
                     }
 
-        lusgs_sweep(bf, rhs_vec, gamma, nvis, ng, 1);
-        lusgs_sweep(bf, rhs_vec, gamma, nvis, ng, -1);
-        gs_pr_sweep(bf, rhs_vec, gamma, nvis, ng, 1);
-        gs_pr_sweep(bf, rhs_vec, gamma, nvis, ng, -1);
+        lusgs_sweep(bf, rhs_vec, gamma, nvis, ng, reynolds, 1);
+        lusgs_sweep(bf, rhs_vec, gamma, nvis, ng, reynolds, -1);
+        gs_pr_sweep(bf, rhs_vec, gamma, nvis, ng, reynolds, 1);
+        gs_pr_sweep(bf, rhs_vec, gamma, nvis, ng, reynolds, -1);
 
-        // 3. Post-process Boundary DQ
         set_boundary_dq_zero(bf, bcb, ng);
-
-        // 4. Update Primitives
         update_limited(bf, params, ng);
     }
 }

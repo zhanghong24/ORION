@@ -72,7 +72,7 @@ $control
   nmethod  =  1
   nbgmax   =  1
   newton   =  0
-  nomax    =  1
+  nomax    =  10
   ndisk    =  10
   nforce   =  10
   nwerror  =  1
