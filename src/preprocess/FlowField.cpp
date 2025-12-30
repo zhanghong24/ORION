@@ -77,7 +77,6 @@ FlowFieldSet allocate_other_variable(const mesh::MultiBlockGrid& grid,
     bf.prim.resize(nx, ny, nz, fs.nprim);
     bf.c.resize(nx, ny, nz);
     bf.mu.resize(nx, ny, nz);
-    bf.T.resize(nx,ny,nz);
     bf.dt.resize(nx,ny,nz);
     
     // [修复] 谱半径需要存储 3 个方向的分量 (xi, eta, zeta)

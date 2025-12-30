@@ -32,7 +32,6 @@ struct BlockField {
 
   OrionArray<double> dt;
 
-  OrionArray<double> T;
   OrionArray<double> c;     // Speed of Sound (idim+2ng, jdim+2ng, kdim+2ng)
   OrionArray<double> mu;    // Viscosity (Laminar+Turbulent?) (idim+2ng, jdim+2ng, kdim+2ng)
 
@@ -60,7 +59,6 @@ struct BlockField {
     q.clear();
     dq.clear();
     prim.clear();
-    T.clear();
     c.clear();
     mu.clear();
     dt.clear();

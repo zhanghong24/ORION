@@ -37,7 +37,7 @@ static void update_thermodynamics_block(orion::preprocess::BlockField& bf,
                 double p   = bf.prim(i, j, k, 4);
                 double a2 = gamma * p / rho;
                 bf.c(i, j, k) = std::sqrt(std::abs(a2));
-                if (nvis == 1) bf.T(i, j, k) = moo2 * a2;
+                if (nvis == 1) bf.prim(i, j, k, 5) = moo2 * a2;
             }
         }
     }
@@ -66,7 +66,7 @@ static void update_thermodynamics_block(orion::preprocess::BlockField& bf,
                             if (l == 3) rho = std::abs(rho);
                             double a2 = gamma * p / rho;
                             bf.c(i, j, k) = std::sqrt(std::abs(a2));
-                            if (nvis == 1) bf.T(i, j, k) = moo2 * a2;
+                            if (nvis == 1) bf.prim(i, j, k, 5) = moo2 * a2;
                         }
                     }
                 }
@@ -91,7 +91,7 @@ static void update_viscosity_block(orion::preprocess::BlockField& bf,
     for (int k = k_s; k <= k_e; ++k) {
         for (int j = j_s; j <= j_e; ++j) {
             for (int i = i_s; i <= i_e; ++i) {
-                double tm = bf.T(i, j, k);
+                double tm = bf.prim(i, j, k,5);
                 bf.mu(i, j, k) = tm * std::sqrt(tm) * (1.0 + visc) / (tm + visc);
             }
         }

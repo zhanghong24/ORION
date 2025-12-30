@@ -311,7 +311,7 @@ void FluxComputer::compute_derivatives_cell(const orion::preprocess::BlockField&
             for (int i = -2; i < idim + 3; ++i) {
                 int idx = std::max(0, std::min(nx-1, ng + i));
                 for(int m=0; m<4; ++m) {
-                    double val = (m<3) ? bf.prim(idx,j,k,m+1) : bf.T(idx,j,k);
+                    double val = (m<3) ? bf.prim(idx,j,k,m+1) : bf.prim(idx,j,k,5);
                     q_line[(i+2)*4 + m] = val;
                 }
             }
@@ -332,7 +332,7 @@ void FluxComputer::compute_derivatives_cell(const orion::preprocess::BlockField&
             for (int j = -2; j < jdim + 3; ++j) {
                 int idx = std::max(0, std::min(ny-1, ng + j));
                 for(int m=0; m<4; ++m) {
-                    double val = (m<3) ? bf.prim(i,idx,k,m+1) : bf.T(i,idx,k);
+                    double val = (m<3) ? bf.prim(i,idx,k,m+1) : bf.prim(i,idx,k,5);
                     q_line_j[(j+2)*4 + m] = val;
                 }
             }
@@ -353,7 +353,7 @@ void FluxComputer::compute_derivatives_cell(const orion::preprocess::BlockField&
             for (int k = -2; k < kdim + 3; ++k) {
                 int idx = std::max(0, std::min(nz-1, ng + k));
                 for(int m=0; m<4; ++m) {
-                    double val = (m<3) ? bf.prim(i,j,idx,m+1) : bf.T(i,j,idx);
+                    double val = (m<3) ? bf.prim(i,j,idx,m+1) : bf.prim(i,j,idx,5);
                     q_line_k[(k+2)*4 + m] = val;
                 }
             }
@@ -387,7 +387,7 @@ void FluxComputer::compute_derivatives_face(const orion::preprocess::BlockField&
             for (int i = -2; i < idim + 3; ++i) {
                 int idx = std::max(0, std::min(nx-1, ng + i));
                 for(int m=0; m<4; ++m) {
-                    double val = (m<3) ? bf.prim(idx,j,k,m+1) : bf.T(idx,j,k);
+                    double val = (m<3) ? bf.prim(idx,j,k,m+1) : bf.prim(idx,j,k,5);
                     q_line[(i+2)*4 + m] = val;
                 }
             }
@@ -410,7 +410,7 @@ void FluxComputer::compute_derivatives_face(const orion::preprocess::BlockField&
             for (int j = -2; j < jdim + 3; ++j) {
                 int idx = std::max(0, std::min(ny-1, ng + j));
                 for(int m=0; m<4; ++m) {
-                    double val = (m<3) ? bf.prim(i,idx,k,m+1) : bf.T(i,idx,k);
+                    double val = (m<3) ? bf.prim(i,idx,k,m+1) : bf.prim(i,idx,k, 5);
                     q_line_j[(j+2)*4 + m] = val;
                 }
             }
@@ -433,7 +433,7 @@ void FluxComputer::compute_derivatives_face(const orion::preprocess::BlockField&
             for (int k = -2; k < kdim + 3; ++k) {
                 int idx = std::max(0, std::min(nz-1, ng + k));
                 for(int m=0; m<4; ++m) {
-                    double val = (m<3) ? bf.prim(i,j,idx,m+1) : bf.T(i,j,idx);
+                    double val = (m<3) ? bf.prim(i,j,idx,m+1) : bf.prim(i,j,idx, 5);
                     q_line_k[(k+2)*4 + m] = val;
                 }
             }
@@ -495,7 +495,7 @@ void FluxComputer::compute_viscous_flux_block(orion::preprocess::BlockField& bf,
             for (int i = -2; i < idim + 3; ++i) {
                 int idx = std::max(0, std::min(nx-1, ng + i));
                 for(int m=0; m<4; ++m) {
-                    double val = (m<3) ? bf.prim(idx,j,k,m+1) : bf.T(idx,j,k);
+                    double val = (m<3) ? bf.prim(idx,j,k,m+1) : bf.prim(idx,j,k, 5);
                     q_line[(i+2)*4 + m] = val;
                 }
             }
@@ -573,7 +573,7 @@ void FluxComputer::compute_viscous_flux_block(orion::preprocess::BlockField& bf,
             for (int j = -2; j < jdim + 3; ++j) {
                 int idx = std::max(0, std::min(ny-1, ng + j));
                 for(int m=0; m<4; ++m) {
-                    double val = (m<3) ? bf.prim(i,idx,k,m+1) : bf.T(i,idx,k);
+                    double val = (m<3) ? bf.prim(i,idx,k,m+1) : bf.prim(i,idx,k, 5);
                     q_line_j[(j+2)*4 + m] = val;
                 }
             }
@@ -653,7 +653,7 @@ void FluxComputer::compute_viscous_flux_block(orion::preprocess::BlockField& bf,
             for (int k = -2; k < kdim + 3; ++k) {
                 int idx = std::max(0, std::min(nz-1, ng + k));
                 for(int m=0; m<4; ++m) {
-                    double val = (m<3) ? bf.prim(i,j,idx,m+1) : bf.T(i,j,idx);
+                    double val = (m<3) ? bf.prim(i,j,idx,m+1) : bf.prim(i,j,idx,5);
                     q_line_k[(k+2)*4 + m] = val;
                 }
             }

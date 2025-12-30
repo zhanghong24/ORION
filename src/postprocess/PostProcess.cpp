@@ -207,9 +207,7 @@ void PostProcess::write_block_vts_binary(int block_id,
 
     // --- D. Temperature ---
     extract_scalar([&](int ix, int iy, int iz) { 
-        double r = bf.prim(ix, iy, iz, 0);
-        double p = bf.prim(ix, iy, iz, 4);
-        return (std::abs(r) > 1e-30) ? (p / r) : 0.0;
+        return bf.prim(ix, iy, iz, 5);
     });
 
     // --- E. Mach ---

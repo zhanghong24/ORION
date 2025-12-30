@@ -384,7 +384,7 @@ void InviscidFluxComputer::compute_block_inviscid(orion::preprocess::BlockField&
                 if (line_idx < 0 || line_idx * 6 + 5 >= (int)q_line.size()) continue; // Bounds check
 
                 for (int m = 0; m < 5; ++m) q_line[line_idx * 6 + m] = bf.prim(idx, j, k, m);
-                q_line[line_idx * 6 + 5] = bf.T(idx, j, k);
+                q_line[line_idx * 6 + 5] = bf.prim(idx, j, k, 5);
 
                 met_line[line_idx * 5 + 0] = bf.metrics(idx, j, k, 0); 
                 met_line[line_idx * 5 + 1] = bf.metrics(idx, j, k, 1); 
@@ -410,7 +410,7 @@ void InviscidFluxComputer::compute_block_inviscid(orion::preprocess::BlockField&
                 if (line_idx < 0 || line_idx * 6 + 5 >= (int)q_line.size()) continue;
 
                 for (int m = 0; m < 5; ++m) q_line[line_idx * 6 + m] = bf.prim(i, idx, k, m);
-                q_line[line_idx * 6 + 5] = bf.T(i, idx, k);
+                q_line[line_idx * 6 + 5] = bf.prim(i, idx, k, 5);
 
                 met_line[line_idx * 5 + 0] = bf.metrics(i, idx, k, 3);
                 met_line[line_idx * 5 + 1] = bf.metrics(i, idx, k, 4);
@@ -436,7 +436,7 @@ void InviscidFluxComputer::compute_block_inviscid(orion::preprocess::BlockField&
                 if (line_idx < 0 || line_idx * 6 + 5 >= (int)q_line.size()) continue;
 
                 for (int m = 0; m < 5; ++m) q_line[line_idx * 6 + m] = bf.prim(i, j, idx, m);
-                q_line[line_idx * 6 + 5] = bf.T(i, j, idx);
+                q_line[line_idx * 6 + 5] = bf.prim(i, j, idx, 5);
 
                 met_line[line_idx * 5 + 0] = bf.metrics(i, j, idx, 6);
                 met_line[line_idx * 5 + 1] = bf.metrics(i, j, idx, 7);
