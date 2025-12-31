@@ -13,6 +13,9 @@
 #include "solver/InviscidFluxComputer.hpp"
 #include "solver/StateUpdater.hpp" 
 #include "postprocess/PostProcess.hpp"
+#include "solver/TimeIntegrator.hpp"
+#include "solver/FluxComputer.hpp"
+#include "solver/InviscidFluxComputer.hpp"
 
 #include <mpi.h>
 #include <iostream>
@@ -379,6 +382,217 @@ void test_state_update(orion::preprocess::FlowFieldSet& fs,
 }
 
 // ---------------------------------------------------------------------------
+// TEST 5: Time Integrator (DT Calculation & Fortran Logic Check)
+// ---------------------------------------------------------------------------
+void test_time_integrator(orion::preprocess::FlowFieldSet& fs,
+                          orion::core::Params params) // Pass by value
+{
+    LOG_INFO(">>> TEST 5: Time Integrator (DT Calculation) Check");
+
+    // 1. 设置物理参数
+    params.inflow.gama = 1.4;
+    params.step.cfl = 1.0;            
+    params.inflow.reynolds = 1000.0;  
+    params.flowtype.nvis = 1;         
+    params.technic.csrv = 1.0;        
+    params.step.timedt_rate = 1.0e20; 
+    params.step.ntmst = 0; // Unsteady mode
+
+    double gamma = params.inflow.gama;
+    double Re = params.inflow.reynolds;
+    double csrv = params.technic.csrv;
+
+    // -----------------------------------------------------------------------
+    // [修复步骤 1] 先初始化该进程下所有的 Block
+    // -----------------------------------------------------------------------
+    double dx = 0.1; 
+    double metric_val = 1.0 / dx;  // 10.0
+    double vol_val = dx * dx * dx; // 0.001
+    double rho_val = 1.0;
+    double p_val = 1.0;
+    double mu_val = 0.1;
+    double c_val = std::sqrt(gamma * p_val / rho_val); // ~1.1832
+
+    for (int nb : fs.local_block_ids) {
+        auto& bf = fs.blocks[nb];
+        int ni = bf.prim.dims()[0];
+        int nj = bf.prim.dims()[1];
+        int nk = bf.prim.dims()[2];
+
+        // 全覆盖填充，确保无死角
+        for(int k=0; k<nk; ++k) {
+            for(int j=0; j<nj; ++j) {
+                for(int i=0; i<ni; ++i) {
+                    bf.metrics(i,j,k,0) = metric_val; // xi_x
+                    bf.metrics(i,j,k,4) = metric_val; // eta_y
+                    bf.metrics(i,j,k,8) = metric_val; // zeta_z
+                    // 其他 metrics 默认为 0 (假设 OrionArray 初始化已清零，或手动清零)
+                    
+                    bf.vol(i,j,k) = vol_val;
+                    bf.prim(i,j,k,0) = rho_val;
+                    bf.prim(i,j,k,1) = 0.0; 
+                    bf.prim(i,j,k,2) = 0.0; 
+                    bf.prim(i,j,k,3) = 0.0; 
+                    bf.prim(i,j,k,4) = p_val;
+                    bf.c(i,j,k) = c_val;
+                    bf.mu(i,j,k) = mu_val;
+                    bf.dt(i,j,k) = 9999.9; // 干扰值
+                }
+            }
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // [修复步骤 2] 全局调用一次求解器
+    // -----------------------------------------------------------------------
+    orion::solver::TimeIntegrator::calculate_time_step(fs, params);
+
+    // -----------------------------------------------------------------------
+    // [修复步骤 3] 验证结果
+    // -----------------------------------------------------------------------
+    int err_count = 0;
+    
+    // 理论值计算
+    double spec_inv = c_val * metric_val; // 11.832
+    double grad_sq = metric_val * metric_val; // 100.0
+    double spec_vis = csrv * (2.0 * mu_val / (Re * rho_val * vol_val)) * grad_sq; // 20.0
+    double total_spec = 3.0 * (spec_inv + spec_vis); // 95.496
+    double dt_phys_exp = params.step.cfl / total_spec; // 0.01047
+    double dt_arr_exp = dt_phys_exp / vol_val; // 10.47
+
+    // 验证 Phydtime (全局变量)
+    if (std::abs(params.step.phydtime - dt_phys_exp) > 1e-5) {
+        LOG_FAIL("Phydtime Mismatch! Exp: " + std::to_string(dt_phys_exp) + 
+                 " Got: " + std::to_string(params.step.phydtime));
+        err_count++;
+    }
+
+    // 验证数组值
+    for (int nb : fs.local_block_ids) {
+        auto& bf = fs.blocks[nb];
+        int ni = bf.prim.dims()[0];
+        int nj = bf.prim.dims()[1];
+        int nk = bf.prim.dims()[2];
+        int ic = ni/2, jc = nj/2, kc = nk/2;
+
+        double dt_act = bf.dt(ic, jc, kc);
+        if (std::abs(dt_act - dt_arr_exp) > 1e-3) {
+            LOG_FAIL("Block " + std::to_string(nb) + " Array Mismatch! Exp: " + std::to_string(dt_arr_exp) + 
+                     " Got: " + std::to_string(dt_act));
+            err_count++;
+        }
+    }
+
+    int global_err = 0;
+    MPI_Allreduce(&err_count, &global_err, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
+
+    if (global_err == 0) {
+        LOG_PASS("Time Integrator Verified (Init-Solve-Check flow corrected).");
+    } else {
+        LOG_FAIL("Time Integrator Logic Failed!");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// TEST 6: Viscous Flux Computer (Exactness Test - Manual Setup)
+// ---------------------------------------------------------------------------
+void test_flux_computer(orion::preprocess::FlowFieldSet& fs,
+                        orion::core::Params params) 
+{
+    LOG_INFO(">>> TEST 6: Viscous Flux Computer (Exactness Test)");
+
+    // 1. Configure Physics
+    params.inflow.reynolds = 1000.0;
+    params.flowtype.nvis = 1;
+    
+    double h = 0.1;
+    double vol_val = h * h * h;   // 0.001
+    double area_val = h * h;      // 0.01 (Metric = Area Norm)
+    double mu_val = 0.1;
+    double Re = params.inflow.reynolds;
+
+    int err_count = 0;
+
+    for (int nb : fs.local_block_ids) {
+        auto& bf = fs.blocks[nb];
+        int ni = bf.prim.dims()[0];
+        int nj = bf.prim.dims()[1];
+        int nk = bf.prim.dims()[2];
+        
+        // 2. Fill Data Manually (Avoid MetricComputer overflow)
+        for(int k=0; k<nk; ++k) {
+            for(int j=0; j<nj; ++j) {
+                for(int i=0; i<ni; ++i) {
+                    // Coordinates (j=ng -> y=0)
+                    double y_phys = (j - fs.ng) * h;
+
+                    // Prim: u = y^2 (Shear flow)
+                    bf.prim(i,j,k,0) = 1.0; 
+                    bf.prim(i,j,k,1) = y_phys * y_phys; 
+                    bf.prim(i,j,k,2) = 0.0;
+                    bf.prim(i,j,k,3) = 0.0;
+                    bf.prim(i,j,k,4) = 1.0;
+                    bf.prim(i,j,k,5) = 1.0; // T
+
+                    bf.mu(i,j,k) = mu_val;
+                    bf.vol(i,j,k) = vol_val;
+                    
+                    // Metrics: Diagonal Matrix (Area Vectors)
+                    // xi_x = h^2, eta_y = h^2, zeta_z = h^2
+                    for(int m=0; m<9; ++m) bf.metrics(i,j,k,m) = 0.0;
+                    bf.metrics(i,j,k,0) = area_val; 
+                    bf.metrics(i,j,k,4) = area_val; 
+                    bf.metrics(i,j,k,8) = area_val; 
+
+                    // Clear Residual
+                    for(int m=0; m<5; ++m) bf.dq(i,j,k,m) = 0.0;
+                }
+            }
+        }
+    }
+
+    // 3. Run Solver
+    orion::solver::FluxComputer::compute_viscous_rhs(fs, params);
+
+    // 4. Verify
+    // Theory:
+    // u = y^2  =>  du/dy = 2y
+    // tau = mu * du/dy = 0.1 * 2y = 0.2y
+    // Flux F = tau * Area = 0.2y * 0.01 = 0.002y
+    // Divergence = dF/dy * dy/d_eta = 0.002 * 1 = 0.002 (per index step)
+    // Or: dF = F(j+1) - F(j) = 0.002(y+h) - 0.002y = 0.002h = 0.0002
+    // RHS Term = - (1/Re) * dF = - (1/1000) * 0.0002 = -2.0e-7
+    
+    double expected_dq = -2.0e-7;
+
+    for (int nb : fs.local_block_ids) {
+        auto& bf = fs.blocks[nb];
+        int ni = bf.prim.dims()[0];
+        int nj = bf.prim.dims()[1];
+        int nk = bf.prim.dims()[2];
+
+        // Check center point
+        int ic = ni/2, jc = nj/2, kc = nk/2;
+        double dq_act = bf.dq(ic, jc, kc, 1); // x-momentum
+
+        if (std::abs(dq_act - expected_dq) > 1e-10) {
+             LOG_FAIL("Viscous RHS Mismatch! Exp: " + std::to_string(expected_dq) + 
+                      " Got: " + std::to_string(dq_act));
+             err_count++;
+        }
+    }
+
+    int global_err = 0;
+    MPI_Allreduce(&err_count, &global_err, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
+
+    if (global_err == 0) {
+        LOG_PASS("Viscous Flux Computer Verified (Exactness Test).");
+    } else {
+        LOG_FAIL("Viscous Flux Computer Failed!");
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 int main(int argc, char** argv) {
@@ -406,7 +620,7 @@ int main(int argc, char** argv) {
     orion::bc::prepare_bc_topology(bc);
 
     // Keep ng=2 as previously established for safety
-    orion::preprocess::FlowFieldSet fs = orion::preprocess::allocate_other_variable(grid, bc, params, 2, 6);
+    orion::preprocess::FlowFieldSet fs = orion::preprocess::allocate_other_variable(grid, bc, params, 5, 6);
     
     orion::solver::HaloExchanger exchanger;
 
@@ -421,6 +635,12 @@ int main(int argc, char** argv) {
 
     MPI_Barrier(MPI_COMM_WORLD);
     test_state_update(fs, params);
+
+    MPI_Barrier(MPI_COMM_WORLD);
+    test_time_integrator(fs, params);
+
+    MPI_Barrier(MPI_COMM_WORLD);
+    test_flux_computer(fs, params);
 
     orion::core::Runtime::finalize();
     return 0;

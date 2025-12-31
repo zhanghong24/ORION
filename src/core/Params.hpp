@@ -69,6 +69,7 @@ struct Params {
     double cfl=0, timedt=0, timedt_rate=0, dtdts=0;
     int nsubstmx=0;
     double tolsub=0;
+    double phydtime=0.0;
   } step;
 
   struct Flowtype {
