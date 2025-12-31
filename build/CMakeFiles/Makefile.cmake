@@ -53,4 +53,5 @@ set(CMAKE_DEPEND_INFO_FILES
   "src/CMakeFiles/orion_core.dir/DependInfo.cmake"
   "src/CMakeFiles/orion_backend_cpu.dir/DependInfo.cmake"
   "src/CMakeFiles/orion_exec.dir/DependInfo.cmake"
+  "src/CMakeFiles/orion_bench.dir/DependInfo.cmake"
   )

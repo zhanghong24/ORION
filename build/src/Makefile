@@ -85,6 +85,51 @@ rebuild_cache:
 rebuild_cache/fast: rebuild_cache
 .PHONY : rebuild_cache/fast
 
+# Special rule for the target list_install_components
+list_install_components:
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --cyan "Available install components are: \"Unspecified\""
+.PHONY : list_install_components
+
+# Special rule for the target list_install_components
+list_install_components/fast: list_install_components
+.PHONY : list_install_components/fast
+
+# Special rule for the target install
+install: preinstall
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --cyan "Install the project..."
+	/home/soft/cmake/bin/cmake -P cmake_install.cmake
+.PHONY : install
+
+# Special rule for the target install
+install/fast: preinstall/fast
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --cyan "Install the project..."
+	/home/soft/cmake/bin/cmake -P cmake_install.cmake
+.PHONY : install/fast
+
+# Special rule for the target install/local
+install/local: preinstall
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --cyan "Installing only the local directory..."
+	/home/soft/cmake/bin/cmake -DCMAKE_INSTALL_LOCAL_ONLY=1 -P cmake_install.cmake
+.PHONY : install/local
+
+# Special rule for the target install/local
+install/local/fast: preinstall/fast
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --cyan "Installing only the local directory..."
+	/home/soft/cmake/bin/cmake -DCMAKE_INSTALL_LOCAL_ONLY=1 -P cmake_install.cmake
+.PHONY : install/local/fast
+
+# Special rule for the target install/strip
+install/strip: preinstall
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --cyan "Installing the project stripped..."
+	/home/soft/cmake/bin/cmake -DCMAKE_INSTALL_DO_STRIP=1 -P cmake_install.cmake
+.PHONY : install/strip
+
+# Special rule for the target install/strip
+install/strip/fast: preinstall/fast
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --cyan "Installing the project stripped..."
+	/home/soft/cmake/bin/cmake -DCMAKE_INSTALL_DO_STRIP=1 -P cmake_install.cmake
+.PHONY : install/strip/fast
+
 # The main all target
 all: cmake_check_build_system
 	cd /home/zhanghong/HPC/MAIN-SOLVER/ORION/build && $(CMAKE_COMMAND) -E cmake_progress_start /home/zhanghong/HPC/MAIN-SOLVER/ORION/build/CMakeFiles /home/zhanghong/HPC/MAIN-SOLVER/ORION/build/src//CMakeFiles/progress.marks
@@ -157,6 +202,20 @@ orion_exec: src/CMakeFiles/orion_exec.dir/rule
 orion_exec/fast:
 	cd /home/zhanghong/HPC/MAIN-SOLVER/ORION/build && $(MAKE) $(MAKESILENT) -f src/CMakeFiles/orion_exec.dir/build.make src/CMakeFiles/orion_exec.dir/build
 .PHONY : orion_exec/fast
+
+# Convenience name for target.
+src/CMakeFiles/orion_bench.dir/rule:
+	cd /home/zhanghong/HPC/MAIN-SOLVER/ORION/build && $(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 src/CMakeFiles/orion_bench.dir/rule
+.PHONY : src/CMakeFiles/orion_bench.dir/rule
+
+# Convenience name for target.
+orion_bench: src/CMakeFiles/orion_bench.dir/rule
+.PHONY : orion_bench
+
+# fast build rule for target.
+orion_bench/fast:
+	cd /home/zhanghong/HPC/MAIN-SOLVER/ORION/build && $(MAKE) $(MAKESILENT) -f src/CMakeFiles/orion_bench.dir/build.make src/CMakeFiles/orion_bench.dir/build
+.PHONY : orion_bench/fast
 
 backend/cpu/BackendCPU.o: backend/cpu/BackendCPU.cpp.o
 .PHONY : backend/cpu/BackendCPU.o
@@ -277,6 +336,30 @@ bc/PhysicalBC.s: bc/PhysicalBC.cpp.s
 bc/PhysicalBC.cpp.s:
 	cd /home/zhanghong/HPC/MAIN-SOLVER/ORION/build && $(MAKE) $(MAKESILENT) -f src/CMakeFiles/orion_core.dir/build.make src/CMakeFiles/orion_core.dir/bc/PhysicalBC.cpp.s
 .PHONY : bc/PhysicalBC.cpp.s
+
+benchmark.o: benchmark.cpp.o
+.PHONY : benchmark.o
+
+# target to build an object file
+benchmark.cpp.o:
+	cd /home/zhanghong/HPC/MAIN-SOLVER/ORION/build && $(MAKE) $(MAKESILENT) -f src/CMakeFiles/orion_bench.dir/build.make src/CMakeFiles/orion_bench.dir/benchmark.cpp.o
+.PHONY : benchmark.cpp.o
+
+benchmark.i: benchmark.cpp.i
+.PHONY : benchmark.i
+
+# target to preprocess a source file
+benchmark.cpp.i:
+	cd /home/zhanghong/HPC/MAIN-SOLVER/ORION/build && $(MAKE) $(MAKESILENT) -f src/CMakeFiles/orion_bench.dir/build.make src/CMakeFiles/orion_bench.dir/benchmark.cpp.i
+.PHONY : benchmark.cpp.i
+
+benchmark.s: benchmark.cpp.s
+.PHONY : benchmark.s
+
+# target to generate assembly for a file
+benchmark.cpp.s:
+	cd /home/zhanghong/HPC/MAIN-SOLVER/ORION/build && $(MAKE) $(MAKESILENT) -f src/CMakeFiles/orion_bench.dir/build.make src/CMakeFiles/orion_bench.dir/benchmark.cpp.s
+.PHONY : benchmark.cpp.s
 
 core/OrionSolver.o: core/OrionSolver.cpp.o
 .PHONY : core/OrionSolver.o
@@ -717,8 +800,13 @@ help:
 	@echo "... clean"
 	@echo "... depend"
 	@echo "... edit_cache"
+	@echo "... install"
+	@echo "... install/local"
+	@echo "... install/strip"
+	@echo "... list_install_components"
 	@echo "... rebuild_cache"
 	@echo "... orion_backend_cpu"
+	@echo "... orion_bench"
 	@echo "... orion_core"
 	@echo "... orion_exec"
 	@echo "... backend/cpu/BackendCPU.o"
@@ -736,6 +824,9 @@ help:
 	@echo "... bc/PhysicalBC.o"
 	@echo "... bc/PhysicalBC.i"
 	@echo "... bc/PhysicalBC.s"
+	@echo "... benchmark.o"
+	@echo "... benchmark.i"
+	@echo "... benchmark.s"
 	@echo "... core/OrionSolver.o"
 	@echo "... core/OrionSolver.i"
 	@echo "... core/OrionSolver.s"

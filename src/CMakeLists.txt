@@ -78,3 +78,20 @@ endif()
 if(TARGET orion_backend_cuda)
     target_link_libraries(orion_exec orion_backend_cuda)
 endif()
+
+# =========================================================
+# Benchmark Tool
+# =========================================================
+add_executable(orion_bench benchmark.cpp)
+
+# 链接核心库和后端
+target_link_libraries(orion_bench PRIVATE orion_core orion_backend_cpu ${MPI_CXX_LIBRARIES})
+
+# 包含路径
+target_include_directories(orion_bench PRIVATE 
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+# 安装规则 (可选，方便在 build/bin 下找到)
+install(TARGETS orion_bench DESTINATION bin)
