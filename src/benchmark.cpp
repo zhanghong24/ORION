@@ -593,6 +593,90 @@ void test_flux_computer(orion::preprocess::FlowFieldSet& fs,
 }
 
 // ---------------------------------------------------------------------------
+// TEST 7: Interface Residual Averaging (Corrected for Internal Update & Corners)
+// ---------------------------------------------------------------------------
+void test_interface_residual_avg(orion::solver::HaloExchanger& exchanger,
+                                 orion::bc::BCData& bc, 
+                                 orion::preprocess::FlowFieldSet& fs) 
+{
+    LOG_INFO(">>> TEST 7: Interface Residual Averaging Check");
+    int err_count = 0;
+
+    // 1. Setup Data
+    for (int nb : fs.local_block_ids) {
+        auto& bf = fs.blocks[nb];
+        
+        // Fill Volume = 1.0
+        bf.vol.fill(1.0);
+
+        // Fill DQ (Internal & Ghost) with Fingerprint
+        // We fill EVERYTHING to catch the logic regardless of ghost/internal
+        int ni = bf.dq.dims()[0];
+        int nj = bf.dq.dims()[1];
+        int nk = bf.dq.dims()[2];
+        
+        for(int k=0; k<nk; ++k) {
+            for(int j=0; j<nj; ++j) {
+                for(int i=0; i<ni; ++i) {
+                    // Fingerprint: BlockID (1-based) + 1000
+                    double val = (double)(nb + 1) + 1000.0;
+                    for(int m=0; m<5; ++m) bf.dq(i,j,k,m) = val;
+                }
+            }
+        }
+    }
+
+    // 2. Run Averaging
+    // Correct Formula: dq_internal_new = 0.5 * (dq_local + dq_remote * (vol_local/vol_remote))
+    //                                  = 0.5 * ( (ID+1000) + (NID+1000) * 1.0 )
+    exchanger.average_interface_residuals(bc, fs);
+    MPI_Barrier(MPI_COMM_WORLD);
+
+    // 3. Verify (Check CENTER of the face only to avoid corner overwrites)
+    for (int nb : fs.local_block_ids) {
+        auto& bcb = bc.block_bc[nb];
+        auto& bf = fs.blocks[nb];
+
+        for (const auto& reg : bcb.regions) {
+            if (reg.bctype >= 0) continue; // Only check Interface
+
+            int neighbor_id = reg.nbt; // 1-based
+            double local_val = (double)(nb + 1) + 1000.0;
+            double remote_val = (double)neighbor_id + 1000.0;
+            double expected_val = 0.5 * (local_val + remote_val);
+
+            // Get Face Center Indices (Physical 1-based start/end)
+            // reg.s_st is the Boundary Face on the Internal Mesh
+            int ic_phys = (reg.s_st[0] + reg.s_ed[0]) / 2;
+            int jc_phys = (reg.s_st[1] + reg.s_ed[1]) / 2;
+            int kc_phys = (reg.s_st[2] + reg.s_ed[2]) / 2;
+
+            // Convert to Memory Index (0-based with ghost offset)
+            // Absolute value needed because indices can be negative in some definitions
+            int i_mem = std::abs(ic_phys) - 1 + fs.ng;
+            int j_mem = std::abs(jc_phys) - 1 + fs.ng;
+            int k_mem = std::abs(kc_phys) - 1 + fs.ng;
+
+            double act_val = bf.dq(i_mem, j_mem, k_mem, 0);
+            
+            if (std::abs(act_val - expected_val) > 1e-5) {
+                LOG_FAIL("Interface Avg Mismatch! Block " + std::to_string(nb+1) + 
+                         " Neighbor " + std::to_string(neighbor_id) +
+                         " Exp: " + std::to_string(expected_val) + 
+                         " Got: " + std::to_string(act_val));
+                err_count++;
+            }
+        }
+    }
+
+    int global_err = 0;
+    MPI_Allreduce(&err_count, &global_err, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
+
+    if (global_err == 0) LOG_PASS("Interface Residual Averaging Logic Verified.");
+    else LOG_FAIL("Interface Residual Averaging Failed!");
+}
+
+// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 int main(int argc, char** argv) {
@@ -641,6 +725,9 @@ int main(int argc, char** argv) {
 
     MPI_Barrier(MPI_COMM_WORLD);
     test_flux_computer(fs, params);
+
+    MPI_Barrier(MPI_COMM_WORLD);
+    test_interface_residual_avg(exchanger, bc, fs);
 
     orion::core::Runtime::finalize();
     return 0;

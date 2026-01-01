@@ -206,7 +206,7 @@ void PostProcess::write_block_vts_binary(int block_id,
     extract_scalar([&](int ix, int iy, int iz) { return bf.prim(ix, iy, iz, 4); });
 
     // --- D. Temperature ---
-    extract_scalar([&](int ix, int iy, int iz) { 
+    extract_scalar([&](int ix, int iy, int iz) {
         return bf.prim(ix, iy, iz, 5);
     });
 

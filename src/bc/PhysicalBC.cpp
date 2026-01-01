@@ -345,7 +345,7 @@ static void apply_viscid_wall(const BCRegion& reg,
                     else           bf.prim(idx_g[0], idx_g[1], idx_g[2], 0) = rho_calc;
                 }
 
-                // 3. 强制更新 Boundary Point (Layer 0) (Fortran line 70-71)
+                // 3. 强制更新 Boundary Point (Layer 0)
                 // 这一点很重要，因为粘性通量计算需要壁面上的准确值
                 int idx_0[3] = {i,j,k};
                 bf.prim(idx_0[0], idx_0[1], idx_0[2], 0) = rho_wall;

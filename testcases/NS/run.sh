@@ -21,4 +21,4 @@ mpirun --allow-run-as-root \
        -mca pml ucx \
        -mca btl ^uct \
        -x UCX_TLS=rc,dc,self \
-       orion_bench
+       orion_exec
