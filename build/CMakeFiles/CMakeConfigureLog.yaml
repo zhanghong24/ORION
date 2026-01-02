@@ -16702,3 +16702,105 @@ events:
         
       exitCode: 0
 ...
+
+---
+events:
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "/home/soft/cmake/share/cmake-3.29/Modules/FindMPI.cmake:1278 (try_compile)"
+      - "/home/soft/cmake/share/cmake-3.29/Modules/FindMPI.cmake:1322 (_MPI_try_staged_settings)"
+      - "/home/soft/cmake/share/cmake-3.29/Modules/FindMPI.cmake:1645 (_MPI_check_lang_works)"
+      - "CMakeLists.txt:55 (find_package)"
+    description: "The MPI test test_mpi for C in mode normal"
+    directories:
+      source: "/home/zhanghong/HPC/MAIN-SOLVER/ORION/build/CMakeFiles/CMakeScratch/TryCompile-C6nGqG"
+      binary: "/home/zhanghong/HPC/MAIN-SOLVER/ORION/build/CMakeFiles/CMakeScratch/TryCompile-C6nGqG"
+    cmakeVariables:
+      CMAKE_C_FLAGS: ""
+      CMAKE_C_FLAGS_DEBUG: "-g"
+      CMAKE_EXE_LINKER_FLAGS: ""
+      CMAKE_POSITION_INDEPENDENT_CODE: "ON"
+    buildResult:
+      variable: "MPI_RESULT_C_test_mpi_normal"
+      cached: true
+      stdout: |
+        Change Dir: '/home/zhanghong/HPC/MAIN-SOLVER/ORION/build/CMakeFiles/CMakeScratch/TryCompile-C6nGqG'
+        
+        Run Build Command(s): /home/soft/cmake/bin/cmake -E env VERBOSE=1 /usr/bin/make -f Makefile cmTC_45c3c/fast
+        /usr/bin/make  -f CMakeFiles/cmTC_45c3c.dir/build.make CMakeFiles/cmTC_45c3c.dir/build
+        make[1]: Entering directory '/home/zhanghong/HPC/MAIN-SOLVER/ORION/build/CMakeFiles/CMakeScratch/TryCompile-C6nGqG'
+        Building C object CMakeFiles/cmTC_45c3c.dir/test_mpi.c.o
+        /usr/bin/cc  -isystem /home/soft/openmpi-5.0.5/include -fPIE -pthread -o CMakeFiles/cmTC_45c3c.dir/test_mpi.c.o -c /home/zhanghong/HPC/MAIN-SOLVER/ORION/build/CMakeFiles/CMakeScratch/TryCompile-C6nGqG/test_mpi.c
+        Linking C executable cmTC_45c3c
+        /home/soft/cmake/bin/cmake -E cmake_link_script CMakeFiles/cmTC_45c3c.dir/link.txt --verbose=1
+        /usr/bin/cc -Wl,-rpath -Wl,/home/soft/openmpi-5.0.5/lib -Wl,--enable-new-dtags -pthread CMakeFiles/cmTC_45c3c.dir/test_mpi.c.o -o cmTC_45c3c  /home/soft/openmpi-5.0.5/lib/libmpi.so
+        make[1]: Leaving directory '/home/zhanghong/HPC/MAIN-SOLVER/ORION/build/CMakeFiles/CMakeScratch/TryCompile-C6nGqG'
+        
+      exitCode: 0
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "/home/soft/cmake/share/cmake-3.29/Modules/FindMPI.cmake:1278 (try_compile)"
+      - "/home/soft/cmake/share/cmake-3.29/Modules/FindMPI.cmake:1322 (_MPI_try_staged_settings)"
+      - "/home/soft/cmake/share/cmake-3.29/Modules/FindMPI.cmake:1645 (_MPI_check_lang_works)"
+      - "CMakeLists.txt:55 (find_package)"
+    description: "The MPI test test_mpi for CXX in mode normal"
+    directories:
+      source: "/home/zhanghong/HPC/MAIN-SOLVER/ORION/build/CMakeFiles/CMakeScratch/TryCompile-ganXYH"
+      binary: "/home/zhanghong/HPC/MAIN-SOLVER/ORION/build/CMakeFiles/CMakeScratch/TryCompile-ganXYH"
+    cmakeVariables:
+      CMAKE_CXX_FLAGS: ""
+      CMAKE_CXX_FLAGS_DEBUG: "-g"
+      CMAKE_EXE_LINKER_FLAGS: ""
+      CMAKE_POSITION_INDEPENDENT_CODE: "ON"
+    buildResult:
+      variable: "MPI_RESULT_CXX_test_mpi_normal"
+      cached: true
+      stdout: |
+        Change Dir: '/home/zhanghong/HPC/MAIN-SOLVER/ORION/build/CMakeFiles/CMakeScratch/TryCompile-ganXYH'
+        
+        Run Build Command(s): /home/soft/cmake/bin/cmake -E env VERBOSE=1 /usr/bin/make -f Makefile cmTC_07aa4/fast
+        /usr/bin/make  -f CMakeFiles/cmTC_07aa4.dir/build.make CMakeFiles/cmTC_07aa4.dir/build
+        make[1]: Entering directory '/home/zhanghong/HPC/MAIN-SOLVER/ORION/build/CMakeFiles/CMakeScratch/TryCompile-ganXYH'
+        Building CXX object CMakeFiles/cmTC_07aa4.dir/test_mpi.cpp.o
+        /usr/bin/c++  -isystem /home/soft/openmpi-5.0.5/include -std=gnu++17 -fPIE -pthread -o CMakeFiles/cmTC_07aa4.dir/test_mpi.cpp.o -c /home/zhanghong/HPC/MAIN-SOLVER/ORION/build/CMakeFiles/CMakeScratch/TryCompile-ganXYH/test_mpi.cpp
+        Linking CXX executable cmTC_07aa4
+        /home/soft/cmake/bin/cmake -E cmake_link_script CMakeFiles/cmTC_07aa4.dir/link.txt --verbose=1
+        /usr/bin/c++ -Wl,-rpath -Wl,/home/soft/openmpi-5.0.5/lib -Wl,--enable-new-dtags -pthread CMakeFiles/cmTC_07aa4.dir/test_mpi.cpp.o -o cmTC_07aa4  /home/soft/openmpi-5.0.5/lib/libmpi.so
+        make[1]: Leaving directory '/home/zhanghong/HPC/MAIN-SOLVER/ORION/build/CMakeFiles/CMakeScratch/TryCompile-ganXYH'
+        
+      exitCode: 0
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "/home/soft/cmake/share/cmake-3.29/Modules/FindMPI.cmake:1278 (try_compile)"
+      - "/home/soft/cmake/share/cmake-3.29/Modules/FindMPI.cmake:1672 (_MPI_try_staged_settings)"
+      - "CMakeLists.txt:55 (find_package)"
+    description: "The MPI test test_mpi for CXX in mode MPICXX"
+    directories:
+      source: "/home/zhanghong/HPC/MAIN-SOLVER/ORION/build/CMakeFiles/CMakeScratch/TryCompile-jPwWVK"
+      binary: "/home/zhanghong/HPC/MAIN-SOLVER/ORION/build/CMakeFiles/CMakeScratch/TryCompile-jPwWVK"
+    cmakeVariables:
+      CMAKE_CXX_FLAGS: ""
+      CMAKE_CXX_FLAGS_DEBUG: "-g"
+      CMAKE_EXE_LINKER_FLAGS: ""
+      CMAKE_POSITION_INDEPENDENT_CODE: "ON"
+    buildResult:
+      variable: "MPI_RESULT_CXX_test_mpi_MPICXX"
+      cached: true
+      stdout: |
+        Change Dir: '/home/zhanghong/HPC/MAIN-SOLVER/ORION/build/CMakeFiles/CMakeScratch/TryCompile-jPwWVK'
+        
+        Run Build Command(s): /home/soft/cmake/bin/cmake -E env VERBOSE=1 /usr/bin/make -f Makefile cmTC_1e5c9/fast
+        /usr/bin/make  -f CMakeFiles/cmTC_1e5c9.dir/build.make CMakeFiles/cmTC_1e5c9.dir/build
+        make[1]: Entering directory '/home/zhanghong/HPC/MAIN-SOLVER/ORION/build/CMakeFiles/CMakeScratch/TryCompile-jPwWVK'
+        Building CXX object CMakeFiles/cmTC_1e5c9.dir/test_mpi.cpp.o
+        /usr/bin/c++  -isystem /home/soft/openmpi-5.0.5/include -std=gnu++17 -fPIE -pthread -o CMakeFiles/cmTC_1e5c9.dir/test_mpi.cpp.o -c /home/zhanghong/HPC/MAIN-SOLVER/ORION/build/CMakeFiles/CMakeScratch/TryCompile-jPwWVK/test_mpi.cpp
+        Linking CXX executable cmTC_1e5c9
+        /home/soft/cmake/bin/cmake -E cmake_link_script CMakeFiles/cmTC_1e5c9.dir/link.txt --verbose=1
+        /usr/bin/c++ -Wl,-rpath -Wl,/home/soft/openmpi-5.0.5/lib -Wl,--enable-new-dtags -pthread CMakeFiles/cmTC_1e5c9.dir/test_mpi.cpp.o -o cmTC_1e5c9  /home/soft/openmpi-5.0.5/lib/libmpi.so
+        make[1]: Leaving directory '/home/zhanghong/HPC/MAIN-SOLVER/ORION/build/CMakeFiles/CMakeScratch/TryCompile-jPwWVK'
+        
+      exitCode: 0
+...

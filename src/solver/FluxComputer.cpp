@@ -319,9 +319,8 @@ void FluxComputer::compute_derivatives_cell(const orion::preprocess::BlockField&
             for (int i = -2; i < idim + 3; ++i) {
                 int idx = std::max(0, std::min(nx-1, ng + i));
                 for(int m=0; m<4; ++m) {
-                    // [修正] T 在 prim(..., 5)
                     double val = (m<3) ? bf.prim(idx,j,k,m+1) : bf.prim(idx,j,k,5);
-                    q_line[(i+2)*4 + m] = val;
+                    q_line[(i+3)*4 + m] = val;
                 }
             }
             compute_node_deriv_line(4, idim, q_line, dq_line, f_l, f_r);
@@ -343,7 +342,7 @@ void FluxComputer::compute_derivatives_cell(const orion::preprocess::BlockField&
                 for(int m=0; m<4; ++m) {
                     // [修正] T 在 prim(..., 5)
                     double val = (m<3) ? bf.prim(i,idx,k,m+1) : bf.prim(i,idx,k,5);
-                    q_line_j[(j+2)*4 + m] = val;
+                    q_line_j[(j+3)*4 + m] = val;
                 }
             }
             compute_node_deriv_line(4, jdim, q_line_j, dq_line_j, f_l, f_r);
@@ -365,7 +364,7 @@ void FluxComputer::compute_derivatives_cell(const orion::preprocess::BlockField&
                 for(int m=0; m<4; ++m) {
                     // [修正] T 在 prim(..., 5)
                     double val = (m<3) ? bf.prim(i,j,idx,m+1) : bf.prim(i,j,idx,5);
-                    q_line_k[(k+2)*4 + m] = val;
+                    q_line_k[(k+3)*4 + m] = val;
                 }
             }
             compute_node_deriv_line(4, kdim, q_line_k, dq_line_k, f_l, f_r);
@@ -400,7 +399,7 @@ void FluxComputer::compute_derivatives_face(const orion::preprocess::BlockField&
                 for(int m=0; m<4; ++m) {
                     // [修正] T 在 prim(..., 5)
                     double val = (m<3) ? bf.prim(idx,j,k,m+1) : bf.prim(idx,j,k,5);
-                    q_line[(i+2)*4 + m] = val;
+                    q_line[(i+3)*4 + m] = val;
                 }
             }
             compute_half_deriv_line(4, idim, q_line, dq_line, f_l, f_r);
@@ -424,7 +423,7 @@ void FluxComputer::compute_derivatives_face(const orion::preprocess::BlockField&
                 for(int m=0; m<4; ++m) {
                     // [修正] T 在 prim(..., 5)
                     double val = (m<3) ? bf.prim(i,idx,k,m+1) : bf.prim(i,idx,k,5);
-                    q_line_j[(j+2)*4 + m] = val;
+                    q_line_j[(j+3)*4 + m] = val;
                 }
             }
             compute_half_deriv_line(4, jdim, q_line_j, dq_line_j, f_l, f_r);
@@ -448,7 +447,7 @@ void FluxComputer::compute_derivatives_face(const orion::preprocess::BlockField&
                 for(int m=0; m<4; ++m) {
                     // [修正] T 在 prim(..., 5)
                     double val = (m<3) ? bf.prim(i,j,idx,m+1) : bf.prim(i,j,idx,5);
-                    q_line_k[(k+2)*4 + m] = val;
+                    q_line_k[(k+3)*4 + m] = val;
                 }
             }
             compute_half_deriv_line(4, kdim, q_line_k, dq_line_k, f_l, f_r);
@@ -511,7 +510,7 @@ void FluxComputer::compute_viscous_flux_block(orion::preprocess::BlockField& bf,
                 for(int m=0; m<4; ++m) {
                     // [修正] T 在 prim(..., 5)
                     double val = (m<3) ? bf.prim(idx,j,k,m+1) : bf.prim(idx,j,k,5);
-                    q_line[(i+2)*4 + m] = val;
+                    q_line[(i+3)*4 + m] = val;
                 }
             }
             interp_line_to_half(4, idim, q_line, uvwt_half, f_l, f_r);
@@ -519,18 +518,18 @@ void FluxComputer::compute_viscous_flux_block(orion::preprocess::BlockField& bf,
             // 几何量/粘性强制使用中心插值 (0, 0)
             
             // Viscosity
-            for (int i = -2; i < idim + 3; ++i) q_line[(i+2)*1 + 0] = bf.mu(std::max(0, std::min(nx-1, ng+i)), j, k);
+            for (int i = -2; i < idim + 3; ++i) q_line[(i+3)*1 + 0] = bf.mu(std::max(0, std::min(nx-1, ng+i)), j, k);
             interp_line_to_half(1, idim, q_line, vslt1_half, 0, 0); // Force central
             for(int i=0; i<n_face; ++i) vslt2_half[i] = vslt1_half[i] * cp_prl;
 
             // Vol
-            for (int i = -2; i < idim + 3; ++i) q_line[(i+2)*1 + 0] = bf.vol(std::max(0, std::min(nx-1, ng+i)), j, k);
+            for (int i = -2; i < idim + 3; ++i) q_line[(i+3)*1 + 0] = bf.vol(std::max(0, std::min(nx-1, ng+i)), j, k);
             interp_line_to_half(1, idim, q_line, vol_half, 0, 0); // Force central
 
             // Metrics
             for (int i = -2; i < idim + 3; ++i) {
                 int idx = std::max(0, std::min(nx-1, ng + i));
-                for(int m=0; m<9; ++m) q_line[(i+2)*9 + m] = bf.metrics(idx,j,k, m);
+                for(int m=0; m<9; ++m) q_line[(i+3)*9 + m] = bf.metrics(idx,j,k, m);
             }
             interp_line_to_half(9, idim, q_line, kxyz_half, 0, 0); // Force central
 
@@ -545,7 +544,7 @@ void FluxComputer::compute_viscous_flux_block(orion::preprocess::BlockField& bf,
             std::vector<double> duvwt_cc_face(n_face * 8);
             for (int i = -2; i < idim + 3; ++i) {
                 int src_idx = std::max(ng, std::min(nx-ng-1, ng+i));
-                for(int m=0; m<8; ++m) q_line[(i+2)*8+m] = duvwt(src_idx, j, k, m+4);
+                for(int m=0; m<8; ++m) q_line[(i+3)*8+m] = duvwt(src_idx, j, k, m+4);
             }
             interp_line_to_half(8, idim, q_line, duvwt_cc_face, 0, 0); // Force central
 
@@ -590,23 +589,23 @@ void FluxComputer::compute_viscous_flux_block(orion::preprocess::BlockField& bf,
                 for(int m=0; m<4; ++m) {
                     // [修正] T 在 prim(..., 5)
                     double val = (m<3) ? bf.prim(i,idx,k,m+1) : bf.prim(i,idx,k,5);
-                    q_line_j[(j+2)*4 + m] = val;
+                    q_line_j[(j+3)*4 + m] = val;
                 }
             }
             interp_line_to_half(4, jdim, q_line_j, uvwt_half, f_l, f_r);
 
             // Viscosity & Vol (Central)
-            for (int j = -2; j < jdim + 3; ++j) q_line_j[(j+2)*1 + 0] = bf.mu(i, std::max(0, std::min(ny-1, ng+j)), k);
+            for (int j = -2; j < jdim + 3; ++j) q_line_j[(j+3)*1 + 0] = bf.mu(i, std::max(0, std::min(ny-1, ng+j)), k);
             interp_line_to_half(1, jdim, q_line_j, vslt1_half, 0, 0);
             for(int j=0; j<n_face_j; ++j) vslt2_half[j] = vslt1_half[j] * cp_prl;
 
-            for (int j = -2; j < jdim + 3; ++j) q_line_j[(j+2)*1 + 0] = bf.vol(i, std::max(0, std::min(ny-1, ng+j)), k);
+            for (int j = -2; j < jdim + 3; ++j) q_line_j[(j+3)*1 + 0] = bf.vol(i, std::max(0, std::min(ny-1, ng+j)), k);
             interp_line_to_half(1, jdim, q_line_j, vol_half, 0, 0);
 
             // Metrics (Central)
             for (int j = -2; j < jdim + 3; ++j) {
                 int idx = std::max(0, std::min(ny-1, ng + j));
-                for(int m=0; m<9; ++m) q_line_j[(j+2)*9 + m] = bf.metrics(i,idx,k, m);
+                for(int m=0; m<9; ++m) q_line_j[(j+3)*9 + m] = bf.metrics(i,idx,k, m);
             }
             interp_line_to_half(9, jdim, q_line_j, kxyz_half, 0, 0);
 
@@ -621,8 +620,8 @@ void FluxComputer::compute_viscous_flux_block(orion::preprocess::BlockField& bf,
             std::vector<double> duvwt_cc_face(n_face_j * 8);
             for (int j = -2; j < jdim + 3; ++j) {
                 int src_idx = std::max(ng, std::min(ny-ng-1, ng+j));
-                for(int m=0; m<4; ++m) q_line_j[(j+2)*8+m] = duvwt(i, src_idx, k, m); 
-                for(int m=0; m<4; ++m) q_line_j[(j+2)*8+m+4] = duvwt(i, src_idx, k, m+8);
+                for(int m=0; m<4; ++m) q_line_j[(j+3)*8+m] = duvwt(i, src_idx, k, m); 
+                for(int m=0; m<4; ++m) q_line_j[(j+3)*8+m+4] = duvwt(i, src_idx, k, m+8);
             }
             interp_line_to_half(8, jdim, q_line_j, duvwt_cc_face, 0, 0);
 
@@ -666,23 +665,23 @@ void FluxComputer::compute_viscous_flux_block(orion::preprocess::BlockField& bf,
                 for(int m=0; m<4; ++m) {
                     // [修正] T 在 prim(..., 5)
                     double val = (m<3) ? bf.prim(i,j,idx,m+1) : bf.prim(i,j,idx,5);
-                    q_line_k[(k+2)*4 + m] = val;
+                    q_line_k[(k+3)*4 + m] = val;
                 }
             }
             interp_line_to_half(4, kdim, q_line_k, uvwt_half, f_l, f_r);
 
             // Visc/Vol (Central)
-            for (int k = -2; k < kdim + 3; ++k) q_line_k[(k+2)*1 + 0] = bf.mu(i, j, std::max(0, std::min(nz-1, ng+k)));
+            for (int k = -2; k < kdim + 3; ++k) q_line_k[(k+3)*1 + 0] = bf.mu(i, j, std::max(0, std::min(nz-1, ng+k)));
             interp_line_to_half(1, kdim, q_line_k, vslt1_half, 0, 0);
             for(int k=0; k<n_face_k; ++k) vslt2_half[k] = vslt1_half[k] * cp_prl;
 
-            for (int k = -2; k < kdim + 3; ++k) q_line_k[(k+2)*1 + 0] = bf.vol(i, j, std::max(0, std::min(nz-1, ng+k)));
+            for (int k = -2; k < kdim + 3; ++k) q_line_k[(k+3)*1 + 0] = bf.vol(i, j, std::max(0, std::min(nz-1, ng+k)));
             interp_line_to_half(1, kdim, q_line_k, vol_half, 0, 0);
 
             // Metrics (Central)
             for (int k = -2; k < kdim + 3; ++k) {
                 int idx = std::max(0, std::min(nz-1, ng + k));
-                for(int m=0; m<9; ++m) q_line_k[(k+2)*9 + m] = bf.metrics(i,j,idx, m);
+                for(int m=0; m<9; ++m) q_line_k[(k+3)*9 + m] = bf.metrics(i,j,idx, m);
             }
             interp_line_to_half(9, kdim, q_line_k, kxyz_half, 0, 0);
 
@@ -697,7 +696,7 @@ void FluxComputer::compute_viscous_flux_block(orion::preprocess::BlockField& bf,
             std::vector<double> duvwt_cc_face(n_face_k * 8);
             for (int k = -2; k < kdim + 3; ++k) {
                 int src_idx = std::max(ng, std::min(nz-ng-1, ng+k));
-                for(int m=0; m<8; ++m) q_line_k[(k+2)*8+m] = duvwt(i, j, src_idx, m); 
+                for(int m=0; m<8; ++m) q_line_k[(k+3)*8+m] = duvwt(i, j, src_idx, m); 
             }
             interp_line_to_half(8, kdim, q_line_k, duvwt_cc_face, 0, 0);
 
