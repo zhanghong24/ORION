@@ -354,10 +354,9 @@ static void apply_viscid_wall(const BCRegion& reg,
                 bf.prim(idx_0[0], idx_0[1], idx_0[2], 3) = 0.0;
                 bf.prim(idx_0[0], idx_0[1], idx_0[2], 4) = p_wall;
                 if (bf.prim.dims()[3] > 5) 
+                {
                     bf.prim(idx_0[0], idx_0[1], idx_0[2], 5) = t_wall;
-                
-                if (params.control.method == 1) 
-                    apply_dif_average(bf, i, j, k, dir, reg.s_lr, 6); 
+                }
             }
         }
     }

@@ -153,6 +153,53 @@ void OrionSolver::solve()
             halo_exchanger_.average_interface_residuals(bc_, fs_);
         }
 
+        // ================= [DEBUG START: RHS Check] =================
+        // 此时 bf.dq 存储的是 Residual (RHS)。我们统计一下它的范围。
+        // 重点关注密度(idx=0) 和 能量(idx=4) 的残差
+        double min_rhs_rho = 1.0e20, max_rhs_rho = -1.0e20;
+        double min_rhs_eng = 1.0e20, max_rhs_eng = -1.0e20;
+        double sum_rhs_rho = 0.0;
+
+        for (int nb_idx : fs_.local_block_ids) {
+            auto& bf = fs_.blocks[nb_idx];
+            int ni = bf.dq.dims()[0];
+            int nj = bf.dq.dims()[1];
+            int nk = bf.dq.dims()[2];
+            int ng = fs_.ng;
+
+            // 遍历物理域
+            for (int k = ng; k < nk - ng; ++k) {
+                for (int j = ng; j < nj - ng; ++j) {
+                    for (int i = ng; i < ni - ng; ++i) {
+                        double r_rho = bf.dq(i, j, k, 0); // 密度残差
+                        double r_eng = bf.dq(i, j, k, 4); // 能量残差
+                        
+                        if (r_rho < min_rhs_rho) min_rhs_rho = r_rho;
+                        if (r_rho > max_rhs_rho) max_rhs_rho = r_rho;
+                        if (r_eng < min_rhs_eng) min_rhs_eng = r_eng;
+                        if (r_eng > max_rhs_eng) max_rhs_eng = r_eng;
+                        
+                        sum_rhs_rho += std::abs(r_rho);
+                    }
+                }
+            }
+        }
+
+        // MPI 归约
+        double g_min_rho, g_max_rho, g_min_eng, g_max_eng, g_sum_rho;
+        MPI_Allreduce(&min_rhs_rho, &g_min_rho, 1, MPI_DOUBLE, MPI_MIN, MPI_COMM_WORLD);
+        MPI_Allreduce(&max_rhs_rho, &g_max_rho, 1, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
+        MPI_Allreduce(&min_rhs_eng, &g_min_eng, 1, MPI_DOUBLE, MPI_MIN, MPI_COMM_WORLD);
+        MPI_Allreduce(&max_rhs_eng, &g_max_eng, 1, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
+        MPI_Allreduce(&sum_rhs_rho, &g_sum_rho, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+
+        if (core::Runtime::is_root()) {
+            printf("\n$ [DEBUG RHS] Density Residual  (dq[0]): Min=%15.8e, Max=%15.8e, SumAbs=%15.8e\n", g_min_rho, g_max_rho, g_sum_rho);
+            printf("$ [DEBUG RHS] Energy Residual   (dq[4]): Min=%15.8e, Max=%15.8e\n", g_min_eng, g_max_eng);
+            MPI_Abort(MPI_COMM_WORLD, 0); // 强制退出对比
+        }
+        // ================= [DEBUG END] =================
+
         solver::InviscidFluxComputer::compute_inviscid_rhs(fs_, params_);
 
         halo_exchanger_.average_interface_residuals(bc_, fs_);

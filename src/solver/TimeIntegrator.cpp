@@ -105,9 +105,9 @@ void TimeIntegrator::calculate_local_dt_cell(orion::preprocess::BlockField& bf,
     double cfl = params.step.cfl;
 
     // 计算局部时间步长，并存储为 (dt / vol) 格式
-    for (int k = 0; k < nk; ++k) {
-        for (int j = 0; j < nj; ++j) {
-            for (int i = 0; i < ni; ++i) {
+    for (int k = ng; k < nk-ng; ++k) {
+        for (int j = ng; j < nj-ng; ++j) {
+            for (int i = ng; i < ni-ng; ++i) {
                 double sum_spec = 0.0;
                 for (int dir = 0; dir < 3; ++dir) {
                     sum_spec += bf.spec_radius(i, j, k, dir) + bf.spec_radius_visc(i, j, k, dir);
@@ -142,25 +142,7 @@ void TimeIntegrator::calculate_time_step(orion::preprocess::FlowFieldSet& fs,
 
     // 2. 根据 ntmst 模式调整
     if (ntmst == 1) {
-        // --- Steady Mode (Local Time Stepping) ---
-        // 逻辑：直接用几何大时间步长覆盖
-        double dtmin_limit = 1.0e12; // Fortran Hardcode
-
-        for (int nb : fs.local_block_ids) {
-            auto& bf = fs.blocks[nb];
-            int ni = bf.dt.dims()[0];
-            int nj = bf.dt.dims()[1];
-            int nk = bf.dt.dims()[2];
-
-            for (int k = 0; k < nk; ++k) {
-                for (int j = 0; j < nj; ++j) {
-                    for (int i = 0; i < ni; ++i) {
-                        double vol = bf.vol(i, j, k);
-                        bf.dt(i, j, k) = dtmin_limit / std::max(vol, sml_vol);
-                    }
-                }
-            }
-        }
+        /// TODO
     } 
     else {
         // --- Unsteady Mode (Global Time Stepping) ---
